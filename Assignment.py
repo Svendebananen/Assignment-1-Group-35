@@ -1,13 +1,10 @@
-
-
 # Howdy partner
 # ! Welcome to the wild west of coding. Let's wrangle some code together!
 
 import gurobipy as gp
-from gurobipy import GRB
+from gurobipy import GRB 
 
-
-# Define ranges and indexes
+# Define ranges and indexes TEST
 N_GENERATORS = 3 #number of generators
 N_LOADS = 1 #number of inflexible loads
 time_step = 1 #time step in hours (Delta_t)
