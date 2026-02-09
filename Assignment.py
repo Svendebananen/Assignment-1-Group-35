@@ -4,7 +4,7 @@
 import gurobipy as gp
 from gurobipy import GRB 
 
-# Define ranges and indexes TEST
+# Define ranges and indexes TESTTEST
 N_GENERATORS = 3 #number of generators
 N_LOADS = 1 #number of inflexible loads
 time_step = 1 #time step in hours (Delta_t)
