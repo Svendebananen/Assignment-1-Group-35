@@ -8,10 +8,10 @@ from gurobipy import GRB
 
 
 # Define ranges and indexes
-N_GENERATORS = 3 #number of generators
+N_GENERATORS = 12 #number of generators
 N_LOADS = 1 #number of inflexible loads
 time_step = 1 #time step in hours (Delta_t)
-GENERATORS = range(3) #range of generators
+GENERATORS = range(12) #range of generators
 LOADS = range(1) #range of inflexible Loads
 
 # Set values of input parameters
