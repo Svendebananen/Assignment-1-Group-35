@@ -5,6 +5,7 @@
 
 import gurobipy as gp
 from gurobipy import GRB
+import pandas as pd
 
 
 # Define ranges and indexes
@@ -14,10 +15,15 @@ time_step = 1 #time step in hours (Delta_t)
 GENERATORS = range(12) #range of generators
 LOADS = range(1) #range of inflexible Loads
 
+generators = pd.read_csv('GeneratorsData.csv', header=None, names=['id','bus','capacity','cost'])
+
+loads =pd.read_csv('LoadData.csv', header = None, names=['hour','demand'])
+
 # Set values of input parameters
-generator_cost =  # Variable generators costs (c_i)
-generator_capacity =  # Generators capacity (\Overline{P}_i)
-load_capacity =  # Loads capacity (L_j)
+generator_cost = generators['cost'] # Variable generators costs (c_i)
+generator_capacity = generators['capacity'] # Generators capacity (\Overline{P}_i)
+generator_nodes = generators['bus'] # Nodes where generators are located (n_i)
+load_capacity =  loads('demand') # Inflexible load demand (D_j)
 
 
 class LP_InputData:
