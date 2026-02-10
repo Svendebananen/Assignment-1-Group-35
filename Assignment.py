@@ -1,7 +1,5 @@
-
-
 # Howdy partner
-# ! Welcome to the wild west of coding. Let's wrangle some code together!hwfehuafsh
+# ! Welcome to the wild west of coding. Let's wrangle some code together!
 
 import gurobipy as gp
 from gurobipy import GRB
