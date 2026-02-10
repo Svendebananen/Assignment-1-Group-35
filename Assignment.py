@@ -83,9 +83,19 @@ class LP_OptimizationProblem():
         print("-------------------   RESULTS  -------------------")
         print("Optimal objective:", self.results.objective_value)
         for key, value in self.results.variables.items():
-                print(f'Optimal value of {key}:', value)
+            label = key
+            if key.startswith("production of generator "):
+                suffix = key.split(" ")[-1]
+                if suffix.isdigit():
+                    label = f"production of generator {int(suffix) + 1}"
+            print(f'Optimal value of {label}:', value)
         for key, value in self.results.optimal_duals.items():
-                print(f'Dual variable of {key}:', value)
+            label = key
+            if key.startswith("capacity constraint "):
+                suffix = key.split(" ")[-1]
+                if suffix.isdigit():
+                    label = f"capacity constraint {int(suffix) + 1}"
+            print(f'Dual variable of {label}:', value)
 
 def LP_builder(
         VARIABLES: list[str],
@@ -134,7 +144,7 @@ generator_nodes = generators['bus'] # Nodes where generators are located (n_i)
 load_capacity = loads['demand'] # Inflexible load demand (D_j) for hour 1, as an example
 
 for t in range(time_step):  # Loop over time steps (hours)
-    print(f'------------------- {t}  -------------------')
+    print(f'------------------- {t + 1}  -------------------')
     print(load_capacity[t])
 
     input_data = {
