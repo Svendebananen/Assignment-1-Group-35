@@ -1,0 +1,7 @@
+parameter,value,unit,description
+Pch,300,MW,Charging capacity
+Pdis,300,MW,Discharging capacity
+E,1200,MWh,Energy storage capacity
+eta_ch,0.90,,Charging efficiency
+eta_dis,0.95,,Discharging efficiency
+E0,600,MWh,Initial energy stored (half capacity)
