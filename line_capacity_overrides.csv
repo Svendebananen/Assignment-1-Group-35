@@ -1,0 +1,4 @@
+from_node,to_node,new_capacity_MVA,reason
+15,21,400,Bottleneck for wind integration
+14,16,250,Bottleneck for wind integration
+13,23,250,Bottleneck for wind integration
