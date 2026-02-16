@@ -4,6 +4,8 @@
 import gurobipy as gp
 from gurobipy import GRB
 import pandas as pd
+import glob
+import numpy as np
 
 
 class Expando(object):
@@ -126,15 +128,23 @@ def LP_builder(
 
 
 # Define ranges and indexes
-N_GENERATORS = 12 #number of generators
+N_GENERATORS = 18 #number of generators
 N_LOADS = 1 #number of inflexible loads
 time_step = 24 #time step in hours (Delta_t)
-GENERATORS = range(12) #range of generators
+GENERATORS = range(18) #range of generators 
 LOADS = range(1) #range of inflexible Loads
 
 generators = pd.read_csv('GeneratorsData.csv', header=None, names=['id','bus','capacity','cost'])
 
+wind_generators= np.zeros((6, 24)) # Placeholder for wind generator data, to be filled with actual data from CSV files
+file_list = glob.glob(r'C:\Users\User\Assignment-1-Group-35\Ninja\*.csv')
+for i,csv in enumerate(file_list):
+  data = pd.read_csv(csv, header=None,names = ['time','local_time','capacity_factor'],skiprows =4)
+  wind_generators[i,:] = data['capacity_factor'][5808:5808+24].values*200 # Extracting data for 24 hours (assuming data is hourly and starts at index 5813)
+
+wind_bus = pd.read_csv('wind_farms.csv',usecols=['node'])['node'].values
 loads =pd.read_csv('LoadData.csv', header = None, names=['hour','demand'])
+
 
 # Set values of input parameters
 generator_cost = generators['cost'] # Variable generators costs (c_i)
@@ -143,10 +153,29 @@ generator_nodes = generators['bus'] # Nodes where generators are located (n_i)
 #load_capacity =  loads['demand'] # Inflexible load demand (D_j)
 load_capacity = loads['demand'] # Inflexible load demand (D_j) for hour 1, as an example
 
+
+
+
 for t in range(time_step):  # Loop over time steps (hours)
     print(f'------------------- {t + 1}  -------------------')
     print(load_capacity[t])
 
+    wind_generators_at_t = wind_generators[:,t] # Extracting wind generator data for hour t
+    
+    wind_df = pd.DataFrame({
+        'id': [f'wind_{i}' for i in range(6)],
+        'bus': wind_bus,
+        'capacity': wind_generators[:,t],
+        'cost': 0.0
+    })
+
+    generators= pd.concat([generators, wind_df], ignore_index=True)
+    generator_cost = generators['cost'] # Variable generators costs (c_i)
+    generator_capacity = generators['capacity'] # Generators capacity (\Overline{P}_i)
+    generator_nodes = generators['bus'] # Nodes where generators are located (n_i)
+    #load_capacity =  loads['demand'] # Inflexible load demand (D_j)
+
+    
     input_data = {
         'model0': LP_InputData(
             VARIABLES = [f'production of generator {g}' for g in GENERATORS], 
