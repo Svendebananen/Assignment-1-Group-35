@@ -38,28 +38,26 @@ class LP_InputData:
         self.model_name = model_name
 
 class LP_OptimizationProblem():
-
-    def __init__(self, input_data: LP_InputData): # initialize class
-        self.data = input_data # define data attributes
-        self.results = Expando() # define results attributes
-        self._build_model() # build gurobi model
+    def __init__(self, input_data: LP_InputData):
+        self.data = input_data
+        self.results = Expando()
+        self._build_model()
     
     def _build_variables(self):
-        self.variables = {v: self.model.addVar(lb=0, name=f'{v}') for v in self.data.VARIABLES}
+        self.variables = {v: self.model.addVar(lb=0, name=v) for v in self.data.VARIABLES}
     
     def _build_constraints(self):
-        self.constraints = {c:
-                self.model.addLConstr(
-                        gp.quicksum(self.data.constraints_coeff[c][v] * self.variables[v] for v in self.data.VARIABLES),
-                        self.data.constraints_sense[c],
-                        self.data.constraints_rhs[c],
-                        name = f'{c}'
-                ) for c in self.data.CONSTRAINTS
-        }
+        for c in self.data.CONSTRAINTS:
+            self.model.addLConstr(
+                gp.quicksum(self.data.constraints_coeff[c][v] * self.variables[v] for v in self.data.VARIABLES),
+                self.data.constraints_sense[c],
+                self.data.constraints_rhs[c],
+                name=c
+            )
 
     def _build_objective_function(self):
-        objective = gp.quicksum(self.data.objective_coeff[v] * self.variables[v] for v in self.data.VARIABLES)
-        self.model.setObjective(objective, self.data.objective_sense)
+        obj = gp.quicksum(self.data.objective_coeff[v] * self.variables[v] for v in self.data.VARIABLES)
+        self.model.setObjective(obj, self.data.objective_sense)
 
     def _build_model(self):
         self.model = gp.Model(name=self.data.model_name)
@@ -70,61 +68,31 @@ class LP_OptimizationProblem():
     
     def _save_results(self):
         self.results.objective_value = self.model.ObjVal
-        self.results.variables = {v.VarName:v.x for v in self.model.getVars()}
-        self.results.optimal_duals = {f'{c.ConstrName}':c.Pi for c in self.model.getConstrs()}
+        self.results.variables = {v.VarName: v.x for v in self.model.getVars()}
+        self.results.optimal_duals = {c.ConstrName: c.Pi for c in self.model.getConstrs()}
 
     def run(self):
         self.model.optimize()
         if self.model.status == GRB.OPTIMAL:
             self._save_results()
         else:
-            print(f"optimization of {model.ModelName} was not successful")
-    
+            print(f"Optimization failed for {self.model.ModelName}")
+
     def display_results(self):
-        print()
-        print("-------------------   RESULTS  -------------------")
-        print("Optimal objective:", self.results.objective_value)
-        for key, value in self.results.variables.items():
-            label = key
-            if key.startswith("production of generator "):
-                suffix = key.split(" ")[-1]
-                if suffix.isdigit():
-                    label = f"production of generator {int(suffix) + 1}"
-            print(f'Optimal value of {label}:', value)
-        for key, value in self.results.optimal_duals.items():
-            label = key
-            if key.startswith("capacity constraint "):
-                suffix = key.split(" ")[-1]
-                if suffix.isdigit():
-                    label = f"capacity constraint {int(suffix) + 1}"
-            print(f'Dual variable of {label}:', value)
+        if self.model.status == GRB.OPTIMAL:
+            print()
+            print('-------------------   RESULTS   -------------------')
+            print(f"Model Name: {self.data.model_name}")
+            print("Optimal objective:", self.results.objective_value)
+            print("\nDECISION VARIABLES:")
+            for var_name, value in self.results.variables.items():
+                print(f'Optimal value of {var_name}:', value)
+            print("\nDUAL VARIABLES (Shadow Prices):")
+            for constr_name, pi in self.results.optimal_duals.items():
+                print(f'Dual variable of {constr_name}:', pi)
+        else:
+            print("Optimization was not successful, no results to display.")
 
-def LP_builder(
-        VARIABLES: list[str],
-        CONSTRAINTS: list[str],
-        objective_coeff: dict[str, float],               # Coefficients in objective function
-        constraints_coeff: dict[str, dict[str,float]],    # Linear coefficients of constraints
-        constraints_rhs: dict[str, float],                # Right hand side coefficients of constraints
-        constraints_sense: dict[str, int],              # Direction of constraints
-        objective_sense: int,                           # Direction of op2timization
-        model_name: str                                 # Name of model
-): 
-    # Build model
-    model = gp.Model(name=model_name)
-
-    # add variables
-    variables = {v: model.addVar(lb=0, name=f'{v}') for v in VARIABLES}
-
-    # Objective
-    objective = gp.quicksum(objective_coeff[v] * variables[v] for v in VARIABLES)
-    model.setObjective(objective, objective_sense)
-
-
-    # Constraints
-    for c in CONSTRAINTS:
-        model.addLConstr(gp.quicksum(constraints_coeff[c][v] * variables[v] for v in VARIABLES), constraints_sense[c], constraints_rhs[c], name=f'{c}')
-    model.update()
-    return model
 
 
 # Define ranges and indexes
@@ -150,45 +118,50 @@ loads =pd.read_csv('LoadData.csv', header = None, names=['hour','demand'])
 generator_cost = generators['cost'] # Variable generators costs (c_i)
 generator_capacity = generators['capacity'] # Generators capacity (\Overline{P}_i)
 generator_nodes = generators['bus'] # Nodes where generators are located (n_i)
-#load_capacity =  loads['demand'] # Inflexible load demand (D_j)
 load_capacity = loads['demand'] # Inflexible load demand (D_j) for hour 1, as an example
 
 
 
 
-for t in range(time_step):  # Loop over time steps (hours)
-    print(f'------------------- {t + 1}  -------------------')
-    print(load_capacity[t])
-
-    wind_generators_at_t = wind_generators[:,t] # Extracting wind generator data for hour t
+for t in range(time_step):
+    print(f'\n--- HOUR {t + 1} ---')
+    
     
     wind_df = pd.DataFrame({
         'id': [f'wind_{i}' for i in range(6)],
-        'bus': wind_bus,
-        'capacity': wind_generators[:,t],
+        'capacity': wind_generators[:, t],
         'cost': 0.0
     })
-
-    generators= pd.concat([generators, wind_df], ignore_index=True)
-    generator_cost = generators['cost'] # Variable generators costs (c_i)
-    generator_capacity = generators['capacity'] # Generators capacity (\Overline{P}_i)
-    generator_nodes = generators['bus'] # Nodes where generators are located (n_i)
-    #load_capacity =  loads['demand'] # Inflexible load demand (D_j)
-
     
-    input_data = {
-        'model0': LP_InputData(
-            VARIABLES = [f'production of generator {g}' for g in GENERATORS], 
-            CONSTRAINTS = ['balance constraint'] + [f'capacity constraint {g}' for g in GENERATORS], 
-            objective_coeff = {f'production of generator {g}': generator_cost[g] for g in GENERATORS}, 
-            constraints_coeff = {'balance constraint': {f'production of generator {g}': 1 for g in GENERATORS},**{f'capacity constraint {g}': {f'production of generator {k}': int(k == g) for k in GENERATORS} for g in GENERATORS}},
-            constraints_rhs = {'balance constraint': load_capacity[t],**{f'capacity constraint {g}': generator_capacity[g] for g in GENERATORS}},
-            constraints_sense = {'balance constraint': GRB.EQUAL,**{f'capacity constraint {g}': GRB.LESS_EQUAL for g in GENERATORS}},
-            objective_sense = GRB.MINIMIZE,
-            model_name = "ED problem"
-     )
-    }
-    model = LP_OptimizationProblem(input_data['model0'])
-    model.run()
-    model.display_results()
-    print(f'--------------------------------------------------')
+    
+    current_generators = pd.concat([generators, wind_df], ignore_index=True)
+    
+   
+    TOTAL_GENS = range(len(current_generators))
+    
+    
+    input_obj = LP_InputData(
+        VARIABLES = [f'gen_{g}' for g in TOTAL_GENS],
+        CONSTRAINTS = ['balance'] + [f'cap_{g}' for g in TOTAL_GENS],
+        objective_coeff = {f'gen_{g}': current_generators['cost'][g] for g in TOTAL_GENS},
+        constraints_coeff = {
+            'balance': {f'gen_{g}': 1 for g in TOTAL_GENS},
+            **{f'cap_{g}': {f'gen_{k}': int(k == g) for k in TOTAL_GENS} for g in TOTAL_GENS}
+        },
+        constraints_rhs = {
+            'balance': load_capacity[t],
+            **{f'cap_{g}': current_generators['capacity'][g] for g in TOTAL_GENS}
+        },
+        constraints_sense = {
+            'balance': GRB.EQUAL,
+            **{f'cap_{g}': GRB.LESS_EQUAL for g in TOTAL_GENS}
+        },
+        objective_sense = GRB.MINIMIZE,
+        model_name = f"ED_Hour_{t}"
+    )
+
+   
+    problem = LP_OptimizationProblem(input_obj)
+    problem.run()
+    problem.display_results()
+print(f'--------------------------------------------------')
