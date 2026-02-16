@@ -48,7 +48,7 @@ class LP_OptimizationProblem():
     def _build_constraints(self):
         self.constraints = {c:
                 self.model.addLConstr(
-                        gp.quicksum(self.data.constraints_coeff[c][v] * self.variables[v] for v in self.data.VARIABLES),
+                gp.quicksum(self.data.constraints_coeff[c].get(v, 0) * self.variables[v] for v in self.data.VARIABLES),
                         self.data.constraints_sense[c],
                         self.data.constraints_rhs[c],
                         name = f'{c}'
@@ -85,16 +85,30 @@ class LP_OptimizationProblem():
         for key, value in self.results.variables.items():
             label = key
             if key.startswith("production of generator "):
-                suffix = key.split(" ")[-1]
-                if suffix.isdigit():
-                    label = f"production of generator {int(suffix) + 1}"
+                if " at hour " in key:
+                    prefix, hour_part = key.split(" at hour ", 1)
+                    gen_suffix = prefix.split(" ")[-1]
+                    hour_suffix = hour_part.split(" ")[0]
+                    if gen_suffix.isdigit() and hour_suffix.isdigit():
+                        label = f"production of generator {int(gen_suffix) + 1} at hour {int(hour_suffix) + 1}"
+                else:
+                    suffix = key.split(" ")[-1]
+                    if suffix.isdigit():
+                        label = f"production of generator {int(suffix) + 1}"
             print(f'Optimal value of {label}:', value)
         for key, value in self.results.optimal_duals.items():
             label = key
             if key.startswith("capacity constraint "):
-                suffix = key.split(" ")[-1]
-                if suffix.isdigit():
-                    label = f"capacity constraint {int(suffix) + 1}"
+                if " at hour " in key:
+                    prefix, hour_part = key.split(" at hour ", 1)
+                    gen_suffix = prefix.split(" ")[-1]
+                    hour_suffix = hour_part.split(" ")[0]
+                    if gen_suffix.isdigit() and hour_suffix.isdigit():
+                        label = f"capacity constraint {int(gen_suffix) + 1} at hour {int(hour_suffix) + 1}"
+                else:
+                    suffix = key.split(" ")[-1]
+                    if suffix.isdigit():
+                        label = f"capacity constraint {int(suffix) + 1}"
             print(f'Dual variable of {label}:', value)
 
 def LP_builder(
@@ -143,23 +157,68 @@ generator_nodes = generators['bus'] # Nodes where generators are located (n_i)
 #load_capacity =  loads['demand'] # Inflexible load demand (D_j)
 load_capacity = loads['demand'] # Inflexible load demand (D_j) for hour 1, as an example
 
-for t in range(time_step):  # Loop over time steps (hours)
-    print(f'------------------- {t + 1}  -------------------')
-    print(load_capacity[t])
+def build_multi_hour_input_data(
+    generator_cost,
+    generator_capacity,
+    load_capacity,
+    generators_range,
+    time_range,
+):
+    variables = [f'production of generator {g} at hour {t}' for t in time_range for g in generators_range]
+    constraints = [f'balance constraint at hour {t}' for t in time_range]
+    constraints += [f'capacity constraint {g} at hour {t}' for t in time_range for g in generators_range]
 
-    input_data = {
-        'model0': LP_InputData(
-            VARIABLES = [f'production of generator {g}' for g in GENERATORS], 
-            CONSTRAINTS = ['balance constraint'] + [f'capacity constraint {g}' for g in GENERATORS], 
-            objective_coeff = {f'production of generator {g}': generator_cost[g] for g in GENERATORS}, 
-            constraints_coeff = {'balance constraint': {f'production of generator {g}': 1 for g in GENERATORS},**{f'capacity constraint {g}': {f'production of generator {k}': int(k == g) for k in GENERATORS} for g in GENERATORS}},
-            constraints_rhs = {'balance constraint': load_capacity[t],**{f'capacity constraint {g}': generator_capacity[g] for g in GENERATORS}},
-            constraints_sense = {'balance constraint': GRB.EQUAL,**{f'capacity constraint {g}': GRB.LESS_EQUAL for g in GENERATORS}},
-            objective_sense = GRB.MINIMIZE,
-            model_name = "ED problem"
-     )
+    objective_coeff = {
+        f'production of generator {g} at hour {t}': generator_cost[g]
+        for t in time_range
+        for g in generators_range
     }
-    model = LP_OptimizationProblem(input_data['model0'])
-    model.run()
-    model.display_results()
-    print(f'--------------------------------------------------')
+
+    constraints_coeff = {}
+    constraints_rhs = {}
+    constraints_sense = {}
+
+    for t in time_range:
+        balance_name = f'balance constraint at hour {t}'
+        constraints_coeff[balance_name] = {
+            f'production of generator {g} at hour {t}': 1 for g in generators_range
+        }
+        constraints_rhs[balance_name] = load_capacity[t]
+        constraints_sense[balance_name] = GRB.EQUAL
+
+        for g in generators_range:
+            cap_name = f'capacity constraint {g} at hour {t}'
+            constraints_coeff[cap_name] = {
+                f'production of generator {g} at hour {t}': 1
+            }
+            constraints_rhs[cap_name] = generator_capacity[g]
+            constraints_sense[cap_name] = GRB.LESS_EQUAL
+
+    return LP_InputData(
+        VARIABLES=variables,
+        CONSTRAINTS=constraints,
+        objective_coeff=objective_coeff,
+        constraints_coeff=constraints_coeff,
+        constraints_rhs=constraints_rhs,
+        constraints_sense=constraints_sense,
+        objective_sense=GRB.MINIMIZE,
+        model_name="ED multi-hour problem",
+    )
+
+# Multi-hour model sketch (run this instead of the loop above if you want a single model)
+multi_hour_data = build_multi_hour_input_data(
+    generator_cost=generator_cost,
+    generator_capacity=generator_capacity,
+    load_capacity=load_capacity,
+    generators_range=GENERATORS,
+    time_range=range(time_step),
+)
+multi_hour_model = LP_OptimizationProblem(multi_hour_data)
+multi_hour_model.run()
+multi_hour_model.display_results()
+
+
+# Battery considerations: 
+# The battery (Storage system) is located at the generator 10, since it has a cost of 0. So it can charge the battery when the prices are low.
+# It is assumed the battery is of a capacity of 100 MWh. It is assumed it charges with a efficiency of 93 % and discharges with an efficiency of 95 %. The battery can charge and discharge at a maximum rate of 50 MW. 
+# The constraints should be: 
