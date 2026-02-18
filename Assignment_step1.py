@@ -15,7 +15,7 @@ class Expando(object):
     '''
     pass
 
-
+#define classes for input data and optimization problem
 class LP_InputData:
 
     def __init__(
@@ -128,142 +128,115 @@ def LP_builder(
     return model
 
 
-# Define ranges and indexes
-N_GENERATORS = 24 #number of generators (18 conventional + 6 wind)
-N_LOADS = 1 #number of inflexible loads
-time_step = 24 #time step in hours (Delta_t)
-GENERATORS = range(24) #range of generators (18 conventional + 6 wind)
-LOADS = range(1) #range of inflexible Loads
 
-generators = pd.read_csv('GeneratorsData.csv', header=None, names=['id','bus','capacity','cost'])
+#load data from case study
 
-wind_generators= np.zeros((6, 24)) # Placeholder for wind generator data, to be filled with actual data from CSV files
+conventional_generators = pd.read_csv('GeneratorsData.csv', header=None, names=['id','bus','capacity','cost']) #conventional generators data
+wind_capacity= np.zeros((6, 24))                                                                     # Placeholder for wind generator data, to be filled with actual data from CSV files
 file_list = glob.glob(r'C:\Users\User\Assignment-1-Group-35\Ninja\*.csv')
 for i,csv in enumerate(file_list):
   data = pd.read_csv(csv, header=None,names = ['time','local_time','capacity_factor'],skiprows =4)
-  wind_generators[i,:] = data['capacity_factor'][5808:5808+24].values*200 # Extracting data for 24 hours (assuming data is hourly and starts at index 5813)
-
-wind_bus = pd.read_csv('wind_farms.csv',usecols=['node'])['node'].values
-loads =pd.read_csv('LoadData.csv', header = None, names=['hour','demand'])
+  wind_capacity[i,:] = data['capacity_factor'][5808:5808+24].values*200 # Extracting data for 24 hours (index 5808 to 5831, 31.08) and scaling by 200 MW
 
 
-# Set values of input parameters
-generator_cost = generators['cost'] # Variable generators costs (c_i)
-generator_capacity = generators['capacity'] # Generators capacity (\Overline{P}_i)
-generator_nodes = generators['bus'] # Nodes where generators are located (n_i)
-#load_capacity =  loads['demand'] # Inflexible load demand (D_j)
-load_capacity = loads['demand'] # Inflexible load demand (D_j) for hour 1, as an example
+loads =pd.read_csv('LoadData.csv', header = None, usecols=[1], names=['demand']) #load data
+wind_generator = pd.DataFrame({                                                                                 # wind generators data, with capacity to be updated for each hour based on CSV files
+        'id': [f'wind_{i}' for i in range(wind_capacity.shape[0])],                                             # during optimization
+        'bus': pd.read_csv('wind_farms.csv',usecols=['node'])['node'].values,
+        'capacity': 0.0,                                                                                        # Placeholder, will be updated for each hour
+        'cost': [0.0 for i in range(wind_capacity.shape[0])]
+    })
+
+total_generators =  pd.concat([conventional_generators, wind_generator], ignore_index=True)
+
+
+
+
 
 
 # Merit order curve for hour 5 (index 4)
-hour_idx = 4  # Hour 5 (0-indexed)
-demand_hour5 = load_capacity[hour_idx]
-wind_supply_hour5 = wind_generators[:, hour_idx]
+# hour_idx = 8 # Hour 5 (0-indexed)
+# demand = loads['demand'][hour_idx] # Demand for hour 5
 
-# Collect all generators with their costs and capacities for hour 5
-gen_data = []
 
-# Conventional generators
-for i in range(len(generators)):
-    gen_data.append({
-        'name': f"Conv Gen {i}",
-        'cost': generators['cost'].iloc[i],
-        'capacity': generators['capacity'].iloc[i],
-        'type': 'conventional'
-    })
+# wind_generator['capacity'] = wind_capacity[:, hour_idx]
+# # Collect all generators with their costs and capacities for hour 5
+# total_generators =  pd.concat([conventional_generators, wind_generator], ignore_index=True)
+#  # Add wind generators to the conventional generators DataFrame
+# total_generators.sort_values(by=["cost"], inplace=True) # Sort by cost (merit order)
 
-# Wind generators (cost = 0)
-for i in range(len(wind_supply_hour5)):
-    gen_data.append({
-        'name': f"Wind Farm {i}",
-        'cost': 0,
-        'capacity': wind_supply_hour5[i],
-        'type': 'wind'
-    })
 
-# Sort by cost (merit order)
-gen_data_sorted = sorted(gen_data, key=lambda x: x['cost'])
 
-# Calculate cumulative capacity
-cumulative_capacity = [0]
-costs_for_plot = [0]
-for gen in gen_data_sorted:
-    cumulative_capacity.append(cumulative_capacity[-1] + gen['capacity'])
-    costs_for_plot.append(gen['cost'])
-    cumulative_capacity.append(cumulative_capacity[-1])
-    costs_for_plot.append(gen['cost'])
+# # Calculate cumulative capacity and cost 
+# cumulative_capacity = []
+# cost = []
+# for i in range(len(total_generators)):    
+#     cumulative_capacity.append(sum(total_generators['capacity'][:i]))
+#     cost.append(sum(total_generators['cost'][:i]))
+    
 
-# Remove the last duplicate point
-cumulative_capacity.pop()
-costs_for_plot.pop()
+# # Create the merit order curve plot
+# fig, ax = plt.subplots(figsize=(12, 7))
 
-# Create the merit order curve plot
-fig, ax = plt.subplots(figsize=(12, 7))
+# # Plot the merit order curve
+# ax.step(cumulative_capacity, cost, where='post', linewidth=2.5, color='steelblue', label='Merit Order Curve')
+# ax.fill_between(cumulative_capacity, cost, step='post', alpha=0.3, color='steelblue')
 
-# Plot the merit order curve
-ax.step(cumulative_capacity, costs_for_plot, where='post', linewidth=2.5, color='steelblue', label='Merit Order Curve')
-ax.fill_between(cumulative_capacity, costs_for_plot, step='post', alpha=0.3, color='steelblue')
+# # Add demand line
+# ax.axvline(x=demand, color='red', linestyle='--', linewidth=2.5, label=f'Demand: {demand:.2f} MW')
 
-# Add demand line
-ax.axvline(x=demand_hour5, color='red', linestyle='--', linewidth=2.5, label=f'Demand: {demand_hour5:.2f} MW')
+# # Find and mark the equilibrium point
+# equilibrium_cost = None
+# for i, cum_cap in enumerate(cumulative_capacity):
+#     if cum_cap >= demand:
+#         equilibrium_cost = cost[i-1] # Cost just before exceeding demand
+#         break
 
-# Find and mark the equilibrium point
-equilibrium_cost = None
-for i, cum_cap in enumerate(cumulative_capacity):
-    if cum_cap >= demand_hour5:
-        equilibrium_cost = costs_for_plot[i]
-        break
+# if equilibrium_cost is not None:
+#     ax.plot(demand, equilibrium_cost, 'ro', markersize=10, label=f'Equilibrium Price: €{equilibrium_cost:.2f}/MWh')
+#     ax.axhline(y=equilibrium_cost, color='red', linestyle=':', alpha=0.5)
 
-if equilibrium_cost is not None:
-    ax.plot(demand_hour5, equilibrium_cost, 'ro', markersize=10, label=f'Equilibrium Price: €{equilibrium_cost:.2f}/MWh')
-    ax.axhline(y=equilibrium_cost, color='red', linestyle=':', alpha=0.5)
+# # Formatting
+# ax.set_xlabel('Cumulative Capacity (MW)', fontsize=12, fontweight='bold')
+# ax.set_ylabel('Cost (€/MWh)', fontsize=12, fontweight='bold')
+# ax.set_title(f'Merit Order Curve - Hour {hour_idx}', fontsize=14, fontweight='bold')
+# ax.legend(fontsize=11, loc='upper left')
+# ax.grid(True, alpha=0.3)
+# ax.set_xlim(left=0)
+# ax.set_ylim(bottom=0)
 
-# Formatting
-ax.set_xlabel('Cumulative Capacity (MW)', fontsize=12, fontweight='bold')
-ax.set_ylabel('Cost (€/MWh)', fontsize=12, fontweight='bold')
-ax.set_title(f'Merit Order Curve - Hour 5', fontsize=14, fontweight='bold')
-ax.legend(fontsize=11, loc='upper left')
-ax.grid(True, alpha=0.3)
-ax.set_xlim(left=0)
-ax.set_ylim(bottom=0)
+# plt.tight_layout()
+# plt.show()
 
-plt.tight_layout()
-plt.show()
 
+#Optimization for each hour
+# Define ranges and indexes
+
+
+N_GENERATORS = len(total_generators) #number of generators (12 conventional + 6 wind)
+N_LOADS = 1 #number of inflexible loads
+time_step = 24 #time step in hours (Delta_t)
+GENERATORS = range(len(total_generators)) #range of generators (12 conventional + 6 wind)
+LOADS = range(1) #range of inflexible Loads
 
 for t in range(time_step):  # Loop over time steps (hours)
     print(f'------------------- {t + 1}  -------------------')
-    print(load_capacity[t])
 
-    # Reset generators to original conventional generators for each time step
-    generators = pd.read_csv('GeneratorsData.csv', header=None, names=['id','bus','capacity','cost'])
-    
-    wind_generators_at_t = wind_generators[:,t] # Extracting wind generator data for hour t
-    
-    wind_df = pd.DataFrame({
-        'id': [f'wind_{i}' for i in range(6)],
-        'bus': wind_bus,
-        'capacity': wind_generators[:,t],
-        'cost': 0.0
-    })
+    wind_generator['capacity'] = wind_capacity[:, t] # Update wind generator capacities for the current hour based on CSV data
 
-    generators = pd.concat([generators, wind_df], ignore_index=True)
-    generator_cost = generators['cost'] # Variable generators costs (c_i)
-    generator_capacity = generators['capacity'] # Generators capacity (\Overline{P}_i)
-    generator_nodes = generators['bus'] # Nodes where generators are located (n_i)
-    #load_capacity =  loads['demand'] # Inflexible load demand (D_j)
-
+    total_generators =  pd.concat([conventional_generators, wind_generator], ignore_index=True) # Update total generators DataFrame with the new wind generator capacities for the current hour
+        
     
     input_data = {
         'model0': LP_InputData(
             VARIABLES = [f'production of generator {g}' for g in GENERATORS], 
             CONSTRAINTS = ['balance constraint'] + [f'capacity constraint {g}' for g in GENERATORS], 
-            objective_coeff = {f'production of generator {g}': generator_cost[g] for g in GENERATORS}, 
+            objective_coeff = {f'production of generator {g}': total_generators['cost'][g] for g in GENERATORS}, 
             constraints_coeff = {'balance constraint': {f'production of generator {g}': 1 for g in GENERATORS},**{f'capacity constraint {g}': {f'production of generator {k}': int(k == g) for k in GENERATORS} for g in GENERATORS}},
-            constraints_rhs = {'balance constraint': load_capacity[t],**{f'capacity constraint {g}': generator_capacity[g] for g in GENERATORS}},
+            constraints_rhs = {'balance constraint': loads['demand'][t],**{f'capacity constraint {g}': total_generators['capacity'][g] for g in GENERATORS}},
             constraints_sense = {'balance constraint': GRB.EQUAL,**{f'capacity constraint {g}': GRB.LESS_EQUAL for g in GENERATORS}},
             objective_sense = GRB.MINIMIZE,
-            model_name = "ED problem"
+            model_name = "Copper Plate Optimization Problem"
      )
     }
     model = LP_OptimizationProblem(input_data['model0'])
