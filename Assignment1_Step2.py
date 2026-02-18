@@ -4,7 +4,7 @@
 import gurobipy as gp
 from gurobipy import GRB
 import pandas as pd
-
+import matplotlib.pyplot as plt
 
 class Expando(object):
     '''
@@ -139,6 +139,126 @@ def LP_builder(
     return model
 
 
+def build_multi_hour_input_data(
+    generator_cost,
+    generator_capacity,
+    load_capacity,
+    generators_range,
+    time_range,
+):
+    # Generator variables: production at each hour
+    variables = [f'production of generator {g} at hour {t}' for t in time_range for g in generators_range]
+    
+    # Battery variables: charge power, discharge power, and state of charge
+    variables += [f'battery charge at hour {t}' for t in time_range]
+    variables += [f'battery discharge at hour {t}' for t in time_range]
+    variables += [f'battery SOC at hour {t}' for t in time_range]
+    
+    # Balance constraints
+    constraints = [f'balance constraint at hour {t}' for t in time_range]
+    
+    # Generator capacity constraints
+    constraints += [f'capacity constraint {g} at hour {t}' for t in time_range for g in generators_range]
+    
+    # Battery power limits
+    constraints += [f'battery charge limit at hour {t}' for t in time_range]
+    constraints += [f'battery discharge limit at hour {t}' for t in time_range]
+    
+    # Battery energy constraints
+    constraints += [f'battery SOC limit at hour {t}' for t in time_range]
+    
+    # Battery state of charge dynamics
+    constraints += [f'battery dynamics at hour {t}' for t in time_range]
+
+    # Objective coefficients (only generators have cost, battery is free)
+    objective_coeff = {
+        f'production of generator {g} at hour {t}': generator_cost[g]
+        for t in time_range
+        for g in generators_range
+    }
+    
+    # Battery variables have zero cost
+    for t in time_range:
+        objective_coeff[f'battery charge at hour {t}'] = 0
+        objective_coeff[f'battery discharge at hour {t}'] = 0
+        objective_coeff[f'battery SOC at hour {t}'] = 0
+
+    constraints_coeff = {}
+    constraints_rhs = {}
+    constraints_sense = {}
+
+    for t in time_range:
+        # Balance constraint: generators + battery discharge = load + battery charge
+        balance_name = f'balance constraint at hour {t}'
+        constraints_coeff[balance_name] = {
+            f'production of generator {g} at hour {t}': 1 for g in generators_range
+        }
+        constraints_coeff[balance_name][f'battery discharge at hour {t}'] = 1
+        constraints_coeff[balance_name][f'battery charge at hour {t}'] = -1
+        constraints_rhs[balance_name] = load_capacity[t]
+        constraints_sense[balance_name] = GRB.EQUAL
+
+        # Generator capacity constraints
+        for g in generators_range:
+            cap_name = f'capacity constraint {g} at hour {t}'
+            constraints_coeff[cap_name] = {
+                f'production of generator {g} at hour {t}': 1
+            }
+            constraints_rhs[cap_name] = generator_capacity[g]
+            constraints_sense[cap_name] = GRB.LESS_EQUAL
+
+        # Battery charge limit
+        batt_charge_limit = f'battery charge limit at hour {t}'
+        constraints_coeff[batt_charge_limit] = {
+            f'battery charge at hour {t}': 1
+        }
+        constraints_rhs[batt_charge_limit] = BATTERY_POWER_MAX_CHARGE
+        constraints_sense[batt_charge_limit] = GRB.LESS_EQUAL
+
+        # Battery discharge limit
+        batt_disch_limit = f'battery discharge limit at hour {t}'
+        constraints_coeff[batt_disch_limit] = {
+            f'battery discharge at hour {t}': 1
+        }
+        constraints_rhs[batt_disch_limit] = BATTERY_POWER_MAX_DISCHARGE
+        constraints_sense[batt_disch_limit] = GRB.LESS_EQUAL
+
+        # Battery SOC limit (state of charge <= capacity)
+        batt_soc_limit = f'battery SOC limit at hour {t}'
+        constraints_coeff[batt_soc_limit] = {
+            f'battery SOC at hour {t}': 1
+        }
+        constraints_rhs[batt_soc_limit] = BATTERY_ENERGY_MAX
+        constraints_sense[batt_soc_limit] = GRB.LESS_EQUAL
+
+        # Battery dynamics: SOC_t = SOC_{t-1} + eta_ch * P_ch_t - (1/eta_disch) * P_disch_t
+        batt_dyn = f'battery dynamics at hour {t}'
+        constraints_coeff[batt_dyn] = {
+            f'battery SOC at hour {t}': 1,
+            f'battery charge at hour {t}': -BATTERY_ETA_CHARGE,
+            f'battery discharge at hour {t}': 1 / BATTERY_ETA_DISCHARGE
+        }
+        
+        if t > 0:
+            constraints_coeff[batt_dyn][f'battery SOC at hour {t-1}'] = -1
+            constraints_rhs[batt_dyn] = 0
+        else:
+            # First hour uses initial SOC
+            constraints_rhs[batt_dyn] = BATTERY_INITIAL_SOC
+
+        constraints_sense[batt_dyn] = GRB.EQUAL
+
+    return LP_InputData(
+        VARIABLES=variables,
+        CONSTRAINTS=constraints,
+        objective_coeff=objective_coeff,
+        constraints_coeff=constraints_coeff,
+        constraints_rhs=constraints_rhs,
+        constraints_sense=constraints_sense,
+        objective_sense=GRB.MINIMIZE,
+        model_name="ED multi-hour problem with battery",
+    )
+
 # Define ranges and indexes
 N_GENERATORS = 12 #number of generators
 N_LOADS = 1 #number of inflexible loads
@@ -148,7 +268,8 @@ LOADS = range(1) #range of inflexible Loads
 
 # Battery parameters
 BATTERY_ENERGY_MAX = 100.0  # MWh
-BATTERY_POWER_MAX = 50.0    # MW
+BATTERY_POWER_MAX_DISCHARGE = 50.0    # MW
+BATTERY_POWER_MAX_CHARGE = 50.0    # MW
 BATTERY_ETA_CHARGE = 0.93
 BATTERY_ETA_DISCHARGE = 0.95
 BATTERY_INITIAL_SOC = 0.0   # MWh
@@ -164,109 +285,6 @@ generator_nodes = generators['bus'] # Nodes where generators are located (n_i)
 #load_capacity =  loads['demand'] # Inflexible load demand (D_j)
 load_capacity = loads['demand'] # Inflexible load demand (D_j) for hour 1, as an example
 
-def build_multi_hour_input_data(
-    generator_cost,
-    generator_capacity,
-    load_capacity,
-    generators_range,
-    time_range,
-):
-    variables = [f'production of generator {g} at hour {t}' for t in time_range for g in generators_range]
-    variables += [f'battery charge at hour {t}' for t in time_range]
-    variables += [f'battery discharge at hour {t}' for t in time_range]
-    variables += [f'battery soc at hour {t}' for t in time_range]
-    constraints = [f'balance constraint at hour {t}' for t in time_range]
-    constraints += [f'capacity constraint {g} at hour {t}' for t in time_range for g in generators_range]
-    constraints += [f'battery soc balance at hour {t}' for t in time_range]
-    constraints += [f'battery soc max at hour {t}' for t in time_range]
-    constraints += [f'battery soc min at hour {t}' for t in time_range]
-    constraints += [f'battery charge max at hour {t}' for t in time_range]
-    constraints += [f'battery discharge max at hour {t}' for t in time_range]
-
-    objective_coeff = {
-        f'production of generator {g} at hour {t}': generator_cost[g]
-        for t in time_range
-        for g in generators_range
-    }
-    for t in time_range:
-        objective_coeff[f'battery charge at hour {t}'] = 0.0
-        objective_coeff[f'battery discharge at hour {t}'] = 0.0
-        objective_coeff[f'battery soc at hour {t}'] = 0.0
-
-    constraints_coeff = {}
-    constraints_rhs = {}
-    constraints_sense = {}
-
-    for t in time_range:
-        balance_name = f'balance constraint at hour {t}'
-        constraints_coeff[balance_name] = {
-            f'production of generator {g} at hour {t}': 1 for g in generators_range
-        }
-        constraints_coeff[balance_name][f'battery discharge at hour {t}'] = 1
-        constraints_coeff[balance_name][f'battery charge at hour {t}'] = -1
-        constraints_rhs[balance_name] = load_capacity[t]
-        constraints_sense[balance_name] = GRB.EQUAL
-
-        for g in generators_range:
-            cap_name = f'capacity constraint {g} at hour {t}'
-            constraints_coeff[cap_name] = {
-                f'production of generator {g} at hour {t}': 1
-            }
-            constraints_rhs[cap_name] = generator_capacity[g]
-            constraints_sense[cap_name] = GRB.LESS_EQUAL
-
-        soc_balance_name = f'battery soc balance at hour {t}'
-        constraints_coeff[soc_balance_name] = {
-            f'battery soc at hour {t}': 1,
-            f'battery charge at hour {t}': -BATTERY_ETA_CHARGE,
-            f'battery discharge at hour {t}': 1 / BATTERY_ETA_DISCHARGE,
-        }
-        if t == 0:
-            constraints_rhs[soc_balance_name] = BATTERY_INITIAL_SOC
-        else:
-            constraints_coeff[soc_balance_name][f'battery soc at hour {t - 1}'] = -1
-            constraints_rhs[soc_balance_name] = 0.0
-        constraints_sense[soc_balance_name] = GRB.EQUAL
-
-        soc_max_name = f'battery soc max at hour {t}'
-        constraints_coeff[soc_max_name] = {
-            f'battery soc at hour {t}': 1
-        }
-        constraints_rhs[soc_max_name] = BATTERY_ENERGY_MAX
-        constraints_sense[soc_max_name] = GRB.LESS_EQUAL
-
-        soc_min_name = f'battery soc min at hour {t}'
-        constraints_coeff[soc_min_name] = {
-            f'battery soc at hour {t}': 1
-        }
-        constraints_rhs[soc_min_name] = 0.0
-        constraints_sense[soc_min_name] = GRB.GREATER_EQUAL
-
-        charge_max_name = f'battery charge max at hour {t}'
-        constraints_coeff[charge_max_name] = {
-            f'battery charge at hour {t}': 1
-        }
-        constraints_rhs[charge_max_name] = BATTERY_POWER_MAX
-        constraints_sense[charge_max_name] = GRB.LESS_EQUAL
-
-        discharge_max_name = f'battery discharge max at hour {t}'
-        constraints_coeff[discharge_max_name] = {
-            f'battery discharge at hour {t}': 1
-        }
-        constraints_rhs[discharge_max_name] = BATTERY_POWER_MAX
-        constraints_sense[discharge_max_name] = GRB.LESS_EQUAL
-
-    return LP_InputData(
-        VARIABLES=variables,
-        CONSTRAINTS=constraints,
-        objective_coeff=objective_coeff,
-        constraints_coeff=constraints_coeff,
-        constraints_rhs=constraints_rhs,
-        constraints_sense=constraints_sense,
-        objective_sense=GRB.MINIMIZE,
-        model_name="ED multi-hour problem",
-    )
-
 # Multi-hour model sketch (run this instead of the loop above if you want a single model)
 multi_hour_data = build_multi_hour_input_data(
     generator_cost=generator_cost,
@@ -279,6 +297,59 @@ multi_hour_model = LP_OptimizationProblem(multi_hour_data)
 multi_hour_model.run()
 multi_hour_model.display_results()
 
+# Extract and plot market clearing price (MCP)
+mcp_by_hour = {}
+for t in range(time_step):
+    balance_constraint_name = f'balance constraint at hour {t}'
+    if balance_constraint_name in multi_hour_model.results.optimal_duals:
+        mcp_by_hour[t] = multi_hour_model.results.optimal_duals[balance_constraint_name]
+
+# Create plot
+plt.figure(figsize=(12, 6))
+hours = list(mcp_by_hour.keys())
+prices = list(mcp_by_hour.values())
+
+plt.plot(hours, prices, marker='o', linewidth=2, markersize=8, color='blue')
+plt.xlabel('Hour', fontsize=12)
+plt.ylabel('Market Clearing Price ($/MWh)', fontsize=12)
+plt.title('Market Clearing Price Across 24 Hours', fontsize=14, fontweight='bold')
+plt.grid(True, alpha=0.3)
+plt.xticks(hours)
+plt.tight_layout()
+plt.show()
+
+# Plot system demand (load) across 24 hours
+plt.figure(figsize=(12, 6))
+hours_load = list(range(time_step))
+load_values = load_capacity.values
+
+# Extract battery charge for each hour and add to total demand
+total_demand = []
+conventional_generation = []
+for t in range(time_step):
+    base_load = load_capacity[t]
+    battery_charge_key = f'battery charge at hour {t}'
+    battery_charge = multi_hour_model.results.variables.get(battery_charge_key, 0)
+    total_demand.append(base_load + battery_charge)
+    
+    # Sum conventional generation from all generators
+    gen_production = 0
+    for g in GENERATORS:
+        gen_key = f'production of generator {g} at hour {t}'
+        gen_production += multi_hour_model.results.variables.get(gen_key, 0)
+    conventional_generation.append(gen_production)
+
+plt.plot(hours_load, load_values, marker='s', linewidth=2, markersize=8, color='green', label='Base Load')
+plt.plot(hours_load, total_demand, marker='^', linewidth=2, markersize=8, color='orange', label='Total Demand (with Battery Charging)')
+plt.plot(hours_load, conventional_generation, marker='o', linewidth=2, markersize=8, color='red', label='Conventional Generation')
+plt.xlabel('Hour', fontsize=12)
+plt.ylabel('System Demand (MWh)', fontsize=12)
+plt.title('System Demand and Conventional Generation Across 24 Hours', fontsize=14, fontweight='bold')
+plt.grid(True, alpha=0.3)
+plt.legend()
+plt.xticks(hours_load)
+plt.tight_layout()
+plt.show()
 
 # Battery considerations: 
 # The battery (Storage system) is located at the generator 10, since it has a cost of 0. So it can charge the battery when the prices are low.
