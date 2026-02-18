@@ -146,6 +146,13 @@ time_step = 24 #time step in hours (Delta_t)
 GENERATORS = range(12) #range of generators
 LOADS = range(1) #range of inflexible Loads
 
+# Battery parameters
+BATTERY_ENERGY_MAX = 100.0  # MWh
+BATTERY_POWER_MAX = 50.0    # MW
+BATTERY_ETA_CHARGE = 0.93
+BATTERY_ETA_DISCHARGE = 0.95
+BATTERY_INITIAL_SOC = 0.0   # MWh
+
 generators = pd.read_csv('GeneratorsData.csv', header=None, names=['id','bus','capacity','cost'])
 
 loads =pd.read_csv('LoadData.csv', header = None, names=['hour','demand'])
@@ -165,14 +172,26 @@ def build_multi_hour_input_data(
     time_range,
 ):
     variables = [f'production of generator {g} at hour {t}' for t in time_range for g in generators_range]
+    variables += [f'battery charge at hour {t}' for t in time_range]
+    variables += [f'battery discharge at hour {t}' for t in time_range]
+    variables += [f'battery soc at hour {t}' for t in time_range]
     constraints = [f'balance constraint at hour {t}' for t in time_range]
     constraints += [f'capacity constraint {g} at hour {t}' for t in time_range for g in generators_range]
+    constraints += [f'battery soc balance at hour {t}' for t in time_range]
+    constraints += [f'battery soc max at hour {t}' for t in time_range]
+    constraints += [f'battery soc min at hour {t}' for t in time_range]
+    constraints += [f'battery charge max at hour {t}' for t in time_range]
+    constraints += [f'battery discharge max at hour {t}' for t in time_range]
 
     objective_coeff = {
         f'production of generator {g} at hour {t}': generator_cost[g]
         for t in time_range
         for g in generators_range
     }
+    for t in time_range:
+        objective_coeff[f'battery charge at hour {t}'] = 0.0
+        objective_coeff[f'battery discharge at hour {t}'] = 0.0
+        objective_coeff[f'battery soc at hour {t}'] = 0.0
 
     constraints_coeff = {}
     constraints_rhs = {}
@@ -183,6 +202,8 @@ def build_multi_hour_input_data(
         constraints_coeff[balance_name] = {
             f'production of generator {g} at hour {t}': 1 for g in generators_range
         }
+        constraints_coeff[balance_name][f'battery discharge at hour {t}'] = 1
+        constraints_coeff[balance_name][f'battery charge at hour {t}'] = -1
         constraints_rhs[balance_name] = load_capacity[t]
         constraints_sense[balance_name] = GRB.EQUAL
 
@@ -193,6 +214,47 @@ def build_multi_hour_input_data(
             }
             constraints_rhs[cap_name] = generator_capacity[g]
             constraints_sense[cap_name] = GRB.LESS_EQUAL
+
+        soc_balance_name = f'battery soc balance at hour {t}'
+        constraints_coeff[soc_balance_name] = {
+            f'battery soc at hour {t}': 1,
+            f'battery charge at hour {t}': -BATTERY_ETA_CHARGE,
+            f'battery discharge at hour {t}': 1 / BATTERY_ETA_DISCHARGE,
+        }
+        if t == 0:
+            constraints_rhs[soc_balance_name] = BATTERY_INITIAL_SOC
+        else:
+            constraints_coeff[soc_balance_name][f'battery soc at hour {t - 1}'] = -1
+            constraints_rhs[soc_balance_name] = 0.0
+        constraints_sense[soc_balance_name] = GRB.EQUAL
+
+        soc_max_name = f'battery soc max at hour {t}'
+        constraints_coeff[soc_max_name] = {
+            f'battery soc at hour {t}': 1
+        }
+        constraints_rhs[soc_max_name] = BATTERY_ENERGY_MAX
+        constraints_sense[soc_max_name] = GRB.LESS_EQUAL
+
+        soc_min_name = f'battery soc min at hour {t}'
+        constraints_coeff[soc_min_name] = {
+            f'battery soc at hour {t}': 1
+        }
+        constraints_rhs[soc_min_name] = 0.0
+        constraints_sense[soc_min_name] = GRB.GREATER_EQUAL
+
+        charge_max_name = f'battery charge max at hour {t}'
+        constraints_coeff[charge_max_name] = {
+            f'battery charge at hour {t}': 1
+        }
+        constraints_rhs[charge_max_name] = BATTERY_POWER_MAX
+        constraints_sense[charge_max_name] = GRB.LESS_EQUAL
+
+        discharge_max_name = f'battery discharge max at hour {t}'
+        constraints_coeff[discharge_max_name] = {
+            f'battery discharge at hour {t}': 1
+        }
+        constraints_rhs[discharge_max_name] = BATTERY_POWER_MAX
+        constraints_sense[discharge_max_name] = GRB.LESS_EQUAL
 
     return LP_InputData(
         VARIABLES=variables,
