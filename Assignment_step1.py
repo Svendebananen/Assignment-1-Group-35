@@ -130,13 +130,15 @@ def LP_builder(
 
 
 #load data from case study
+date = '2019-08-31' # Choose data for wind turbine generation
 
 conventional_generators = pd.read_csv('GeneratorsData.csv', header=None, names=['id','bus','capacity','cost']) #conventional generators data
 wind_capacity= np.zeros((6, 24))                                                                     # Placeholder for wind generator data, to be filled with actual data from CSV files
 file_list = glob.glob(r'C:\Users\User\Assignment-1-Group-35\Ninja\*.csv')
 for i,csv in enumerate(file_list):
   data = pd.read_csv(csv, header=None,names = ['time','local_time','capacity_factor'],skiprows =4)
-  wind_capacity[i,:] = data['capacity_factor'][5808:5808+24].values*200 # Extracting data for 24 hours (index 5808 to 5831, 31.08) and scaling by 200 MW
+  index = data.loc[data['time'] == date + ' 00:00'].index[0] # Find the index of the row corresponding to the specified date and time
+  wind_capacity[i,:] = data['capacity_factor'][index:index+24].values*200 
 
 
 loads =pd.read_csv('LoadData.csv', header = None, usecols=[1], names=['demand']) #load data
@@ -150,64 +152,60 @@ wind_generator = pd.DataFrame({                                                 
 total_generators =  pd.concat([conventional_generators, wind_generator], ignore_index=True)
 
 
+# Merit order curve 
+hour_idx = 5 #choose hour 5 (index starts from 0) for merit order curve analysis
+demand = loads['demand'][hour_idx] # Demand for hour 5
 
 
 
-
-# Merit order curve for hour 5 (index 4)
-# hour_idx = 8 # Hour 5 (0-indexed)
-# demand = loads['demand'][hour_idx] # Demand for hour 5
-
-
-# wind_generator['capacity'] = wind_capacity[:, hour_idx]
-# # Collect all generators with their costs and capacities for hour 5
-# total_generators =  pd.concat([conventional_generators, wind_generator], ignore_index=True)
-#  # Add wind generators to the conventional generators DataFrame
-# total_generators.sort_values(by=["cost"], inplace=True) # Sort by cost (merit order)
+wind_generator['capacity'] = wind_capacity[:, hour_idx]
+# Collect all generators with their costs and capacities for hour 5
+total_generators =  pd.concat([conventional_generators, wind_generator], ignore_index=True)
+ # Add wind generators to the conventional generators DataFrame
+total_generators.sort_values(by=["cost"], inplace=True) # Sort by cost (merit order)
 
 
+# Calculate cumulative capacity and cost 
+cumulative_capacity = []
+cost = []
+for i in range(len(total_generators)):    
+    cumulative_capacity.append(sum(total_generators['capacity'][:i]))
+    cost.append(total_generators['cost'].iloc[i]) #fixed indexing to be integerbased rather than label-based, since the DataFrame is sorted by cost and the index may not be sequential after sorting
 
-# # Calculate cumulative capacity and cost 
-# cumulative_capacity = []
-# cost = []
-# for i in range(len(total_generators)):    
-#     cumulative_capacity.append(sum(total_generators['capacity'][:i]))
-#     cost.append(sum(total_generators['cost'][:i]))
-    
 
-# # Create the merit order curve plot
-# fig, ax = plt.subplots(figsize=(12, 7))
 
-# # Plot the merit order curve
-# ax.step(cumulative_capacity, cost, where='post', linewidth=2.5, color='steelblue', label='Merit Order Curve')
-# ax.fill_between(cumulative_capacity, cost, step='post', alpha=0.3, color='steelblue')
+# Create the merit order curve plot
+fig, ax = plt.subplots(figsize=(12, 7))
 
-# # Add demand line
-# ax.axvline(x=demand, color='red', linestyle='--', linewidth=2.5, label=f'Demand: {demand:.2f} MW')
+# Plot the merit order curve
+ax.step(cumulative_capacity, cost, where='post', linewidth=2.5, color='steelblue', label='Merit Order Curve')
+ax.fill_between(cumulative_capacity, cost, step='post', alpha=0.3, color='steelblue')
 
-# # Find and mark the equilibrium point
-# equilibrium_cost = None
-# for i, cum_cap in enumerate(cumulative_capacity):
-#     if cum_cap >= demand:
-#         equilibrium_cost = cost[i-1] # Cost just before exceeding demand
-#         break
+# Add demand line
+ax.axvline(x=demand, color='red', linestyle='--', linewidth=2.5, label=f'Demand: {demand:.2f} MW')
 
-# if equilibrium_cost is not None:
-#     ax.plot(demand, equilibrium_cost, 'ro', markersize=10, label=f'Equilibrium Price: €{equilibrium_cost:.2f}/MWh')
-#     ax.axhline(y=equilibrium_cost, color='red', linestyle=':', alpha=0.5)
+# Find and mark the equilibrium point
+equilibrium_cost = None
+for i, cum_cap in enumerate(cumulative_capacity):
+    if cum_cap >= demand:
+        equilibrium_cost = cost[i-1] # Cost just before exceeding demand
+        break
 
-# # Formatting
-# ax.set_xlabel('Cumulative Capacity (MW)', fontsize=12, fontweight='bold')
-# ax.set_ylabel('Cost (€/MWh)', fontsize=12, fontweight='bold')
-# ax.set_title(f'Merit Order Curve - Hour {hour_idx}', fontsize=14, fontweight='bold')
-# ax.legend(fontsize=11, loc='upper left')
-# ax.grid(True, alpha=0.3)
-# ax.set_xlim(left=0)
-# ax.set_ylim(bottom=0)
+if equilibrium_cost is not None:
+    ax.plot(demand, equilibrium_cost, 'ro', markersize=10, label=f'Equilibrium Price: €{equilibrium_cost:.2f}/MWh')
+    ax.axhline(y=equilibrium_cost, color='red', linestyle=':', alpha=0.5)
 
-# plt.tight_layout()
-# plt.show()
+# Formatting
+ax.set_xlabel('Cumulative Capacity (MW)', fontsize=12, fontweight='bold')
+ax.set_ylabel('Cost (€/MWh)', fontsize=12, fontweight='bold')
+ax.set_title(f'Merit Order Curve - Hour {hour_idx}', fontsize=14, fontweight='bold')
+ax.legend(fontsize=11, loc='upper left')
+ax.grid(True, alpha=0.3)
+ax.set_xlim(left=0)
+ax.set_ylim(bottom=0)
 
+plt.tight_layout()
+plt.show()
 
 #Optimization for each hour
 # Define ranges and indexes
@@ -221,7 +219,7 @@ LOADS = range(1) #range of inflexible Loads
 
 for t in range(time_step):  # Loop over time steps (hours)
     print(f'------------------- {t + 1}  -------------------')
-
+   
     wind_generator['capacity'] = wind_capacity[:, t] # Update wind generator capacities for the current hour based on CSV data
 
     total_generators =  pd.concat([conventional_generators, wind_generator], ignore_index=True) # Update total generators DataFrame with the new wind generator capacities for the current hour
@@ -243,3 +241,4 @@ for t in range(time_step):  # Loop over time steps (hours)
     model.run()
     model.display_results()
     print(f'--------------------------------------------------')
+    
