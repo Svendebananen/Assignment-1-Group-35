@@ -134,7 +134,7 @@ date = '2019-08-31' # Choose data for wind turbine generation
 
 conventional_generators = pd.read_csv('GeneratorsData.csv', header=None, names=['id','bus','capacity','cost']) #conventional generators data
 wind_capacity= np.zeros((6, 24))                                                                     # Placeholder for wind generator data, to be filled with actual data from CSV files
-file_list = glob.glob(r'C:\Users\User\Assignment-1-Group-35\Ninja\*.csv')
+file_list = glob.glob(r'Ninja\*.csv')
 for i,csv in enumerate(file_list):
   data = pd.read_csv(csv, header=None,names = ['time','local_time','capacity_factor'],skiprows =4)
   index = data.loc[data['time'] == date + ' 00:00'].index[0] # Find the index of the row corresponding to the specified date and time
