@@ -272,6 +272,7 @@ N_GENERATORS = 18 #number of generators (12 conventional + 6 wind)
 N_LOADS = 1 #number of inflexible loads
 time_step = 24 #time step in hours (Delta_t)
 GENERATORS = range(18) #range of generators (12 conventional + 6 wind)
+WINDTURBINES = range(12, 18) #range of wind turbines (6 wind generators)
 LOADS = range(1) #range of inflexible Loads
 
 # Battery parameters
@@ -354,6 +355,7 @@ load_values = load_capacity.values
 # Extract battery charge for each hour and add to total demand
 total_demand = []
 conventional_generation = []
+wind_generation = []
 for t in range(time_step):
     base_load = load_capacity[t]
     battery_charge_key = f'battery charge at hour {t}'
@@ -367,9 +369,17 @@ for t in range(time_step):
         gen_production += multi_hour_model.results.variables.get(gen_key, 0)
     conventional_generation.append(gen_production)
 
+    # Sum generation from all wind turbines
+    wind_production = 0
+    for g in WINDTURBINES:
+        gen_key = f'production of generator {g} at hour {t}'
+        wind_production += multi_hour_model.results.variables.get(gen_key, 0)
+    wind_generation.append(wind_production)
+
 plt.plot(hours_load, load_values, marker='s', linewidth=2, markersize=8, color='green', label='Base Load')
 plt.plot(hours_load, total_demand, marker='^', linewidth=2, markersize=8, color='orange', label='Total Demand (with Battery Charging)')
 plt.plot(hours_load, conventional_generation, marker='o', linewidth=2, markersize=8, color='red', label='Non Battery Generation')
+plt.plot(hours_load, wind_generation, marker='d', linewidth=2, markersize=8, color='blue', label='Wind Generation')
 plt.xlabel('Hour', fontsize=12)
 plt.ylabel('System Demand (MWh)', fontsize=12)
 plt.title('System Demand and Generation Across 24 Hours', fontsize=14, fontweight='bold')
