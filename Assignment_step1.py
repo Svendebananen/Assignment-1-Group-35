@@ -7,7 +7,10 @@ import pandas as pd
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
-
+import os as os
+from pathlib import Path
+# Change to script directory
+os.chdir(Path(__file__).parent)
 
 class Expando(object):
     '''
