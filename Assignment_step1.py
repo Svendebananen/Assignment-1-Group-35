@@ -134,20 +134,14 @@ date = '2019-08-31' # Choose data for wind turbine generation
 conventional_generators = pd.read_csv('GeneratorsData.csv', header=None, names=['id','bus','capacity','cost']) # conventional generators data
 
 # Creating the wind capacity matrix for 6 wind generators and 24 hours
-wind_capacity= np.zeros((6, 24)) # placeholder for wind generator data, to be filled with actual data from CSV files
+wind_capacity= np.zeros((6, 24)) # placeholder for wind generator data, to be filled with actual data from CSV files for hourly optimization
 file_list = glob.glob(r'Ninja\*.csv')
 for i,csv in enumerate(file_list):
   data = pd.read_csv(csv, header = None,names = ['time','local_time','capacity_factor'], skiprows = 4)
-  index = data.loc[data['time'] == date + ' 00:00'].index[0] # Find the index of the row corresponding to the specified date and time
+  index = data.loc[data['time'] == date + ' 00:00'].index[0] # Find the index of the row corresponding to the specified date starting at 00:00
   wind_capacity[i,:] = data['capacity_factor'][index:index+24].values*200 
 
-# Load data upload
-loads = pd.read_csv('LoadData.csv', header = None, usecols = [1], names = ['demand'])  # load data (hourly system demand)
-load_distribution = pd.read_csv('load_distribution_1.csv')  # nodal load shares
-load_nodes = load_distribution['node'].tolist()  # list of all load nodes
-load_percentages = dict(zip(load_distribution['node'], load_distribution['pct_of_system_load'] / 100))  # fraction of total demand per node
 
-# Creating a DataFrame to concatenate later
 wind_generator = pd.DataFrame({ # wind generators data, with capacity to be updated for each hour based on CSV files
         'id': [f'wind_{i}' for i in range(wind_capacity.shape[0])],
         'bus': pd.read_csv('wind_farms.csv',usecols=['node'])['node'].values,
@@ -157,6 +151,12 @@ wind_generator = pd.DataFrame({ # wind generators data, with capacity to be upda
 
 # creating a single DataFrame with all generators (conventional + wind)
 total_generators =  pd.concat([conventional_generators, wind_generator], ignore_index = True)
+
+# Load data upload
+loads = pd.read_csv('LoadData.csv', header = None, usecols = [1], names = ['demand'])  # load data (hourly system demand)
+load_distribution = pd.read_csv('load_distribution_1.csv')  # nodal load shares
+load_nodes = load_distribution['node'].tolist()  # list of all load nodes
+load_percentages = dict(zip(load_distribution['node'], load_distribution['pct_of_system_load'] / 100))  # fraction of total demand per node
 
 # List of elastic loads: nodes 1, 7, 9, 13, 14, 15
 elastic_nodes = [1, 7, 9, 13, 14, 15]
@@ -171,13 +171,15 @@ elastic_bid_prices = {
     15: 25.0,   # less flexible, close to peak generator cost
 }
 
+
+# Creating a DataFrame to concatenate later
 # Hour selected for merit order curve analysis (0-based index)
 hour = 4  # hour 5
 
 # Optimization for each hour
 # Define ranges and indexes
 N_GENERATORS = len(total_generators) # number of generators (12 conventional + 6 wind)
-N_LOADS = 17 # number of loads (17 total: 11 inelastic + 6 elastic)
+N_LOADS = len(load_distribution) # number of loads (17 total: 11 inelastic + 6 elastic)
 time_step = 24 # time step in hours 
 GENERATORS = range(len(total_generators)) 
 LOADS = range(N_LOADS) 
@@ -189,13 +191,15 @@ for t in range(time_step):  # Loop over time steps (hours)
     total_generators =  pd.concat([conventional_generators, wind_generator], ignore_index=True) # Update total generators DataFrame with the new wind generator capacities for the current hour
     
     total_demand = loads['demand'][t] # update total demand for the current hour
+    print(total_demand)
+    
     
     # Create demand data for each of the 17 loads
     bid_quantities_min = []
     bid_quantities_max = []
     bid_prices = []
     
-    for idx, node in enumerate(load_nodes):
+    for node in load_nodes:
         demand_at_node = total_demand * load_percentages[node]
         
         if node in elastic_nodes:
@@ -270,7 +274,7 @@ for t in range(time_step):  # Loop over time steps (hours)
   
     mcp = model.results.optimal_duals['balance constraint']
     
-    total_generation = sum(model.results.variables[f'production of generator {g}'] for g in GENERATORS)
+    total_generation = sum(model.results.variables[f'production of generator {g}'] for g in GENERATORS) #should always be the same  to demand as we set constraint to equality
     total_demand_served = sum(model.results.variables[f'demand of load {j}'] for j in LOADS)
     
     # Calculate elastic vs inelastic served
