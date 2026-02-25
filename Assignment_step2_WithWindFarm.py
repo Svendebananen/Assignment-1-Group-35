@@ -7,6 +7,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import glob
 import numpy as np
+import os
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 class Expando(object):
     '''
