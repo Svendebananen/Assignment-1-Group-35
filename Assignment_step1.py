@@ -218,6 +218,7 @@ for t in range(time_step):  # Loop over time steps (hours)
         'bid_price': bid_prices
     })
     
+    
     input_data = {
         'model0': LP_InputData(
             VARIABLES = [f'production of generator {g}' for g in GENERATORS] + \
@@ -299,7 +300,20 @@ for t in range(time_step):  # Loop over time steps (hours)
     # Also calculate curtailment from MAX (110%) for reference
     elastic_max_possible = elastic_demand_base * 1.10
     elastic_curtailment_from_max = (1 - elastic_served / elastic_max_possible) * 100 if elastic_max_possible > 0 else 0
-    
+    if t == 4:  # Store detailed results for the hour selected for merit order curve analysis
+        producer_profits = {}
+        utility_by_load = {}
+
+        for g in GENERATORS:
+            p = model.results.variables[f'production of generator {g}']
+            cost = total_generators['cost'][g]
+            producer_profits[g] = mcp * p - cost * p
+
+        for j in LOADS:
+            q = model.results.variables[f'demand of load {j}']
+            bid_price = demand_data['bid_price'][j]
+            utility_by_load[j] = (bid_price-mcp) * q
+
     # ========== STORE RESULTS ==========
     results_by_hour.append({
         'hour': t + 1,
@@ -318,6 +332,7 @@ for t in range(time_step):  # Loop over time steps (hours)
     })
     
 results_df = pd.DataFrame(results_by_hour)
+
 
 # Print summary for the selected hour
 h = results_df[results_df['hour'] == hour + 1].iloc[0]
@@ -467,3 +482,7 @@ print(f"\nTotal Social Welfare (24h): €{results_df['social_welfare'].sum():.2f
 print(f"Total Generation Cost (24h): €{results_df['total_cost'].sum():.2f}")
 print(f"Total Producer Surplus (24h): €{results_df['producer_surplus'].sum():.2f}")
 print(f"Total Consumer Utility (24h): €{results_df['consumer_utility'].sum():.2f}")
+
+print(producer_profits)
+print(utility_by_load)
+     
