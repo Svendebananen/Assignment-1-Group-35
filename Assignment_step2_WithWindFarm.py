@@ -1,31 +1,32 @@
 # Howdy partner
 # ! Welcome to the wild west of coding. Let's wrangle some code together!
 
+# imports
 import gurobipy as gp
 from gurobipy import GRB
 import pandas as pd
 import matplotlib.pyplot as plt
 import glob
 import numpy as np
+import os
+from pathlib import Path
+os.chdir(Path(__file__).parent) 
 
 class Expando(object):
-    '''
-        A small class which can have attributes set
-    '''
     pass
 
-
+#define classes for input data and optimization problem
 class LP_InputData:
 
     def __init__(
         self, 
         VARIABLES: list[str],
         CONSTRAINTS: list[str],
-        objective_coeff: dict[str, float],               # Coefficients in objective function
-        constraints_coeff: dict[str, dict[str,float]],    # Linear coefficients of constraints
-        constraints_rhs: dict[str, float],                # Right hand side coefficients of constraints
+        objective_coeff: dict[str, float],              # Coefficients in objective function
+        constraints_coeff: dict[str, dict[str,float]],  # Linear coefficients of constraints
+        constraints_rhs: dict[str, float],              # Right hand side coefficients of constraints
         constraints_sense: dict[str, int],              # Direction of constraints
-        objective_sense: int,                           # Direction of op2timization
+        objective_sense: int,                           # Direction of optimization
         model_name: str                                 # Name of model
     ):
         self.VARIABLES = VARIABLES
@@ -97,7 +98,7 @@ class LP_OptimizationProblem():
                     suffix = key.split(" ")[-1]
                     if suffix.isdigit():
                         label = f"production of generator {int(suffix) + 1}"
-            print(f'Optimal value of {label}:', value)
+            print(f'Optimal value of {label}:, {value:.2f}')
         for key, value in self.results.optimal_duals.items():
             label = key
             if key.startswith("capacity constraint "):
@@ -111,14 +112,14 @@ class LP_OptimizationProblem():
                     suffix = key.split(" ")[-1]
                     if suffix.isdigit():
                         label = f"capacity constraint {int(suffix) + 1}"
-            print(f'Dual variable of {label}:', value)
+            print(f'Dual variable of {label}:,{value:.2f}')
 
 def LP_builder(
         VARIABLES: list[str],
         CONSTRAINTS: list[str],
-        objective_coeff: dict[str, float],               # Coefficients in objective function
-        constraints_coeff: dict[str, dict[str,float]],    # Linear coefficients of constraints
-        constraints_rhs: dict[str, float],                # Right hand side coefficients of constraints
+        objective_coeff: dict[str, float],              # Coefficients in objective function
+        constraints_coeff: dict[str, dict[str,float]],  # Linear coefficients of constraints
+        constraints_rhs: dict[str, float],              # Right hand side coefficients of constraints
         constraints_sense: dict[str, int],              # Direction of constraints
         objective_sense: int,                           # Direction of op2timization
         model_name: str                                 # Name of model
@@ -146,8 +147,9 @@ def build_multi_hour_input_data(
     generator_capacity,
     load_capacity,
     generators_range,
+    load_nodes,
     time_range,
-    wind_capacity_by_hour=None,
+    wind_capacity_by_hour = None,
 ):
     # Generator variables: production at each hour
     variables = [f'production of generator {g} at hour {t}' for t in time_range for g in generators_range]
@@ -157,11 +159,18 @@ def build_multi_hour_input_data(
     variables += [f'battery discharge at hour {t}' for t in time_range]
     variables += [f'battery SOC at hour {t}' for t in time_range]
     
+    # Demand variables: accepted quantity for each hour  
+    variables += [f'demand of load {j} at hour {t}' for t in time_range for j in range(len(load_nodes))]
+
     # Balance constraints
     constraints = [f'balance constraint at hour {t}' for t in time_range]
     
     # Generator capacity constraints
     constraints += [f'capacity constraint {g} at hour {t}' for t in time_range for g in generators_range]
+    
+    # Demand constraint: each node has a minimum and maximum that defines its grade of flexibility  
+    constraints += [f'demand min limit {j} at hour {t}' for t in time_range for j in range(len(load_nodes))]  
+    constraints += [f'demand max limit {j} at hour {t}' for t in time_range for j in range(len(load_nodes))]  
     
     # Battery power limits
     constraints += [f'battery charge limit at hour {t}' for t in time_range]
@@ -186,12 +195,12 @@ def build_multi_hour_input_data(
         objective_coeff[f'battery discharge at hour {t}'] = 0
         objective_coeff[f'battery SOC at hour {t}'] = 0
 
-    constraints_coeff = {}
-    constraints_rhs = {}
-    constraints_sense = {}
+        constraints_coeff = {}
+        constraints_rhs = {}
+        constraints_sense = {}
 
+    # Balance constraint: generators + battery discharge = load + battery charge
     for t in time_range:
-        # Balance constraint: generators + battery discharge = load + battery charge
         balance_name = f'balance constraint at hour {t}'
         constraints_coeff[balance_name] = {
             f'production of generator {g} at hour {t}': 1 for g in generators_range
@@ -201,60 +210,60 @@ def build_multi_hour_input_data(
         constraints_rhs[balance_name] = load_capacity[t]
         constraints_sense[balance_name] = GRB.EQUAL
 
-        # Generator capacity constraints
-        for g in generators_range:
-            cap_name = f'capacity constraint {g} at hour {t}'
-            constraints_coeff[cap_name] = {
-                f'production of generator {g} at hour {t}': 1
-            }
-            # Use time-varying wind capacity for wind generators (12-17), fixed capacity for conventional (0-11)
-            if wind_capacity_by_hour is not None and g >= 12:
-                wind_idx = g - 12  # Map generator index to wind farm index (0-5)
-                constraints_rhs[cap_name] = wind_capacity_by_hour[wind_idx, t]
-            else:
-                constraints_rhs[cap_name] = generator_capacity[g]
-            constraints_sense[cap_name] = GRB.LESS_EQUAL
-
-        # Battery charge limit
-        batt_charge_limit = f'battery charge limit at hour {t}'
-        constraints_coeff[batt_charge_limit] = {
-            f'battery charge at hour {t}': 1
+    # Generator capacity constraints
+    for g in generators_range:
+        cap_name = f'capacity constraint {g} at hour {t}'
+        constraints_coeff[cap_name] = {
+            f'production of generator {g} at hour {t}': 1
         }
-        constraints_rhs[batt_charge_limit] = BATTERY_POWER_MAX_CHARGE
-        constraints_sense[batt_charge_limit] = GRB.LESS_EQUAL
-
-        # Battery discharge limit
-        batt_disch_limit = f'battery discharge limit at hour {t}'
-        constraints_coeff[batt_disch_limit] = {
-            f'battery discharge at hour {t}': 1
-        }
-        constraints_rhs[batt_disch_limit] = BATTERY_POWER_MAX_DISCHARGE
-        constraints_sense[batt_disch_limit] = GRB.LESS_EQUAL
-
-        # Battery SOC limit (state of charge <= capacity)
-        batt_soc_limit = f'battery SOC limit at hour {t}'
-        constraints_coeff[batt_soc_limit] = {
-            f'battery SOC at hour {t}': 1
-        }
-        constraints_rhs[batt_soc_limit] = BATTERY_ENERGY_MAX
-        constraints_sense[batt_soc_limit] = GRB.LESS_EQUAL
-
-        # Battery dynamics: SOC_t = SOC_{t-1} + eta_ch * P_ch_t - (1/eta_disch) * P_disch_t
-        batt_dyn = f'battery dynamics at hour {t}'
-        constraints_coeff[batt_dyn] = {
-            f'battery SOC at hour {t}': 1,
-            f'battery charge at hour {t}': -BATTERY_ETA_CHARGE,
-            f'battery discharge at hour {t}': 1 / BATTERY_ETA_DISCHARGE
-        }
-        
-        if t > 0:
-            constraints_coeff[batt_dyn][f'battery SOC at hour {t-1}'] = -1
-            constraints_rhs[batt_dyn] = 0
+        # Use time-varying wind capacity for wind generators (12-17), fixed capacity for conventional (0-11)
+        if wind_capacity_by_hour is not None and g >= 12:
+            wind_idx = g - 12  # Map generator index to wind farm index (0-5)
+            constraints_rhs[cap_name] = wind_capacity_by_hour[wind_idx, t]
         else:
-            # First hour uses initial SOC
-            constraints_rhs[batt_dyn] = BATTERY_INITIAL_SOC
+            constraints_rhs[cap_name] = generator_capacity[g]
+        constraints_sense[cap_name] = GRB.LESS_EQUAL
 
-        constraints_sense[batt_dyn] = GRB.EQUAL
+    # Battery charge limit
+    batt_charge_limit = f'battery charge limit at hour {t}'
+    constraints_coeff[batt_charge_limit] = {
+        f'battery charge at hour {t}': 1
+    }
+    constraints_rhs[batt_charge_limit] = BATTERY_POWER_MAX_CHARGE
+    constraints_sense[batt_charge_limit] = GRB.LESS_EQUAL
+
+    # Battery discharge limit
+    batt_disch_limit = f'battery discharge limit at hour {t}'
+    constraints_coeff[batt_disch_limit] = {
+        f'battery discharge at hour {t}': 1
+    }
+    constraints_rhs[batt_disch_limit] = BATTERY_POWER_MAX_DISCHARGE
+    constraints_sense[batt_disch_limit] = GRB.LESS_EQUAL
+
+    # Battery SOC limit (state of charge <= capacity)
+    batt_soc_limit = f'battery SOC limit at hour {t}'
+    constraints_coeff[batt_soc_limit] = {
+        f'battery SOC at hour {t}': 1
+    }
+    constraints_rhs[batt_soc_limit] = BATTERY_ENERGY_MAX
+    constraints_sense[batt_soc_limit] = GRB.LESS_EQUAL
+
+    # Battery dynamics: SOC_t = SOC_{t-1} + eta_ch * P_ch_t - (1/eta_disch) * P_disch_t
+    batt_dyn = f'battery dynamics at hour {t}'
+    constraints_coeff[batt_dyn] = {
+        f'battery SOC at hour {t}': 1,
+        f'battery charge at hour {t}': -BATTERY_ETA_CHARGE,
+        f'battery discharge at hour {t}': 1 / BATTERY_ETA_DISCHARGE
+    }
+    
+    if t > 0:
+        constraints_coeff[batt_dyn][f'battery SOC at hour {t-1}'] = -1
+        constraints_rhs[batt_dyn] = 0
+    else:
+        # First hour uses initial SOC
+        constraints_rhs[batt_dyn] = BATTERY_INITIAL_SOC
+
+    constraints_sense[batt_dyn] = GRB.EQUAL
 
     return LP_InputData(
         VARIABLES=variables,
@@ -267,36 +276,34 @@ def build_multi_hour_input_data(
         model_name="ED multi-hour problem with battery",
     )
 
-# Define ranges and indexes
-N_GENERATORS = 18 #number of generators (12 conventional + 6 wind)
-N_LOADS = 1 #number of inflexible loads
-time_step = 24 #time step in hours (Delta_t)
-GENERATORS = range(18) #range of generators (12 conventional + 6 wind)
-WINDTURBINES = range(12, 18) #range of wind turbines (6 wind generators)
-LOADS = range(1) #range of inflexible Loads
-
-# Battery parameters
-BATTERY_ENERGY_MAX = 100.0  # MWh
-BATTERY_POWER_MAX_DISCHARGE = 50.0    # MW
-BATTERY_POWER_MAX_CHARGE = 50.0    # MW
-BATTERY_ETA_CHARGE = 0.93
-BATTERY_ETA_DISCHARGE = 0.95
-BATTERY_INITIAL_SOC = 0.0   # MWh
+# Import data from case study
+date = '2019-08-31' # Choose data for wind turbine generation 
 
 # Load conventional generators
-generators = pd.read_csv('GeneratorsData.csv', header=None, names=['id','bus','capacity','cost'])
+conventional_generators = pd.read_csv('GeneratorsData.csv', header=None, names=['id','bus','capacity','cost'])
 
-# Load wind farm data
-wind_generators = np.zeros((6, 24)) # Wind generator capacity for each hour
+# Creating the wind capacity matrix for 6 wind generators and 24 hours
+wind_capacity = np.zeros((6, 24)) # Wind generator capacity for each hour
 file_list = glob.glob('Ninja/*.csv')
 for i, csv in enumerate(file_list):
-    data = pd.read_csv(csv, header=None, names=['time','local_time','capacity_factor'], skiprows=4)
-    wind_generators[i, :] = data['capacity_factor'][5808:5808+24].values * 200 # Extracting data for 24 hours
+    data = pd.read_csv(csv, header = None,names = ['time','local_time','capacity_factor'], skiprows = 4)
+    index = data.loc[data['time'] == date + ' 00:00'].index[0] # Find the index of the row corresponding to the specified date starting at 00:00
+    wind_capacity[i,:] = data['capacity_factor'][index:index+24].values*200 
 
 wind_bus = pd.read_csv('wind_farms.csv', usecols=['node'])['node'].values
 
 # Load demand data
 loads = pd.read_csv('LoadData.csv', header=None, names=['hour','demand'])
+load_distribution = pd.read_csv('load_distribution_1.csv')
+load_nodes = load_distribution['node'].tolist()
+load_percentages = dict(zip(load_distribution['node'], load_distribution['pct_of_system_load'] / 100)) 
+
+# List of elastic nodes
+elastic_nodes = [1, 7, 9, 13, 14, 15] 
+
+# Bid prices for elastic nodes
+elastic_bid_prices = {1: 12.0, 7: 22.0, 9: 10.0, 13: 20.0, 14: 16.0, 15: 25.0}
+peak_multiplier = {t: 1.3 if t in range(7,10) or t in range(16,20) else 1.0 for t in range(24)} 
 
 # Combine conventional and wind generators
 wind_df = pd.DataFrame({
@@ -308,12 +315,28 @@ wind_df = pd.DataFrame({
 
 generators_combined = pd.concat([generators, wind_df], ignore_index=True)
 
+# Define ranges and indexes
+N_GENERATORS = 18 # number of generators (12 conventional + 6 wind)
+N_LOADS = 1 
+time_step = 24 # time step in hours (Delta_t)
+GENERATORS = range(18) # range of generators (12 conventional + 6 wind)
+WINDTURBINES = range(12, 18) # range of wind turbines (6 wind generators)
+LOADS = range(len(load_distribution)) # range of inflexible Loads
+
+# Battery parameters
+BATTERY_ENERGY_MAX = 100.0  # MWh
+BATTERY_POWER_MAX_DISCHARGE = 50.0    # MW
+BATTERY_POWER_MAX_CHARGE = 50.0    # MW
+BATTERY_ETA_CHARGE = 0.93
+BATTERY_ETA_DISCHARGE = 0.95
+BATTERY_INITIAL_SOC = 0.0   # MWh
+
 # Set values of input parameters
 generator_cost = generators_combined['cost'] # Variable generators costs (c_i)
 generator_nodes = generators_combined['bus'] # Nodes where generators are located (n_i)
 load_capacity = loads['demand'] # Inflexible load demand (D_j)
 
-# Multi-hour model sketch (run this instead of the loop above if you want a single model)
+
 multi_hour_data = build_multi_hour_input_data(
     generator_cost=generator_cost,
     generator_capacity=generators_combined['capacity'],
