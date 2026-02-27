@@ -1,4 +1,8 @@
+# Howdy partner
+# ! Welcome to the wild west of coding. Let's wrangle some code together! 
+
 # step 1: single hour optimization with 6/17 elastic loads
+# imports
 import gurobipy as gp
 from gurobipy import GRB
 import pandas as pd
@@ -101,31 +105,32 @@ class LP_OptimizationProblem():
                     label = f"capacity constraint {int(suffix) + 1}"
             print(f'Dual variable of {label}:', value)
 
-def LP_builder(
-        VARIABLES: list[str],
-        CONSTRAINTS: list[str],
-        objective_coeff: dict[str, float],              
-        constraints_coeff: dict[str, dict[str,float]],  
-        constraints_rhs: dict[str, float],              
-        constraints_sense: dict[str, int],              
-        objective_sense: int,                           
-        model_name: str                                 
-): 
-    # Build model
-    model = gp.Model(name=model_name)
+# USELESS?
+# def LP_builder(
+#         VARIABLES: list[str],
+#         CONSTRAINTS: list[str],
+#         objective_coeff: dict[str, float],              
+#         constraints_coeff: dict[str, dict[str,float]],  
+#         constraints_rhs: dict[str, float],              
+#         constraints_sense: dict[str, int],              
+#         objective_sense: int,                           
+#         model_name: str                                 
+# ): 
+#     # Build model
+#     model = gp.Model(name=model_name)
 
-    # Add variables
-    variables = {v: model.addVar(lb=0, name=f'{v}') for v in VARIABLES}
+#     # Add variables
+#     variables = {v: model.addVar(lb=0, name=f'{v}') for v in VARIABLES}
 
-    # Objective
-    objective = gp.quicksum(objective_coeff[v] * variables[v] for v in VARIABLES)
-    model.setObjective(objective, objective_sense)
+#     # Objective
+#     objective = gp.quicksum(objective_coeff[v] * variables[v] for v in VARIABLES)
+#     model.setObjective(objective, objective_sense)
 
-    # Constraints
-    for c in CONSTRAINTS:
-        model.addLConstr(gp.quicksum(constraints_coeff[c][v] * variables[v] for v in VARIABLES), constraints_sense[c], constraints_rhs[c], name=f'{c}')
-    model.update()
-    return model
+#     # Constraints
+#     for c in CONSTRAINTS:
+#         model.addLConstr(gp.quicksum(constraints_coeff[c][v] * variables[v] for v in VARIABLES), constraints_sense[c], constraints_rhs[c], name=f'{c}')
+#     model.update()
+#     return model
 
 
 # Import data from case study
