@@ -13,6 +13,11 @@ import os
 from pathlib import Path
 os.chdir(Path(__file__).parent)
 
+# mute the gurobi license print
+env = gp.Env(empty=True)
+env.setParam('OutputFlag', 0)
+env.start()  
+
 class Expando(object):
     pass
 
@@ -42,7 +47,8 @@ class LP_OptimizationProblem():
     def __init__(self, input_data: LP_InputData):
         self.data = input_data
         self.results = Expando()
-        self._build_model()
+        self._build_model() 
+
 
     def _build_variables(self):
         self.variables = {v: self.model.addVar(lb=0, name=f'{v}') for v in self.data.VARIABLES}
@@ -62,7 +68,7 @@ class LP_OptimizationProblem():
         self.model.setObjective(objective, self.data.objective_sense)
 
     def _build_model(self):
-        self.model = gp.Model(name=self.data.model_name)
+        self.model = gp.Model(name=self.data.model_name, env=env)
         self.model.setParam('OutputFlag', 0)
         self._build_variables()
         self._build_objective_function()
@@ -304,9 +310,35 @@ multi_hour_model = LP_OptimizationProblem(multi_hour_data)
 multi_hour_model.run()
 
 # Print results
-print(f"Total Social Welfare: €{multi_hour_model.results.objective_value:.2f}")
-print(f"\n{'Hour':<6} {'MCP':>10} {'ServedDemand':>14} {'Generation':>12} {'Wind':>10} {'Charge':>10} {'Discharge':>10} {'SOC':>10} {'Balance':>10}")
+print(f"Total Social Welfare: €{multi_hour_model.results.objective_value:.2f}") 
 
+total_operating_cost = 0
+for t in range(time_step):
+    for g in GENERATORS:
+        production = multi_hour_model.results.variables[f'production of generator {g} at hour {t}']
+        cost = generators_combined['cost'].iloc[g]
+        total_operating_cost += production * cost 
+print(f'Total Operating Cost: €{total_operating_cost:.2f}') 
+
+storage_profit = 0
+for t in range(time_step):
+    discharge = multi_hour_model.results.variables.get(f'battery discharge at hour {t}', 0)
+    charge = multi_hour_model.results.variables.get(f'battery charge at hour {t}', 0)
+    mcp = multi_hour_model.results.optimal_duals.get(f'balance constraint at hour {t}', 0)
+    storage_profit += (discharge - charge) * mcp
+print(f'Total Profit of Storage Unit: €{storage_profit:.2f}') 
+
+total_generator_profit = {g: 0 for g in range(N_GENERATORS)}
+for g in range(N_GENERATORS):
+    for t in range(time_step):
+        mcp = multi_hour_model.results.optimal_duals.get(f'balance constraint at hour {t}', 0)
+        production = multi_hour_model.results.variables.get(f'production of generator {g} at hour {t}', 0)
+        total_generator_profit[g] += (mcp - generators_combined['cost'].iloc[g]) * production
+
+for g in range(N_GENERATORS):
+    print(f'Profit of Generator {g+1} over 24 hours: €{total_generator_profit[g]:.2f}')
+
+print(f"\n{'Hour':<6} {'MCP':>10} {'ServedDemand':>14} {'Generation':>12} {'Wind':>10} {'Charge':>10} {'Discharge':>10} {'SOC':>10} {'Balance':>10}")
 for t in range(time_step):
     mcp = multi_hour_model.results.optimal_duals.get(f'balance constraint at hour {t}', 0)
     served_demand = sum(multi_hour_model.results.variables.get(f'demand of load {j} at hour {t}', 0) for j in range(N_LOADS))
