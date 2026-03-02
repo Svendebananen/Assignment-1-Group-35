@@ -4,4 +4,7 @@ Task 1 missing -> This is per hour
  - The profit of each producer, including both conventional units and wind farm----DONE
  - The utility of each demand : Utility = Power Consumption × (Bid Price − Market-Clearing Price)----DONE 
  - Verifiy the KKT conditions --- DONE 
- See branch "adding-battery-w-elastiload 
+
+ Task 2 missing: 
+ - sanity check of everything done 
+ - sensitivity analysis (last three bullets of the pdf)
