@@ -17,6 +17,7 @@ os.chdir(Path(__file__).parent)
 env = gp.Env(empty=True)
 env.setParam('OutputFlag', 0)
 env.start()  
+# os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 class Expando(object):
     pass

@@ -9,6 +9,7 @@ import pandas as pd
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
+# importing os library to consider the same folder of this file for the csv reading
 import os
 from pathlib import Path
 os.chdir(Path(__file__).parent)
