@@ -3,15 +3,6 @@
 
 # step 3: single hour optimization with 6/17 elastic loads and tranmission line constraints
 # 
-# Nye elementer i forhold til Assignment_step1.py:
-# 1. Nodal balance constraints: En balance constraint per node i stedet for én global
-#    - Hver node: Generation - Demand - Outflow + Inflow = 0
-# 2. DC power flow model med eksplicitte flow variabler:
-#    - P_ij = (θ_i - θ_j) / X_ij (power flow fra node i til node j)
-#    - Transmission line constraints: -Capacity <= P_ij <= Capacity
-# 3. Reference bus constraint: θ_13 = 0 (slack bus ved node 13)
-#
-# Resultatet er nodal pricing hvor hver node har sin egen Locational Marginal Price (LMP)
 # imports
 import gurobipy as gp
 from gurobipy import GRB
@@ -187,7 +178,8 @@ GENERATORS = range(len(total_generators))
 LOADS = range(N_LOADS) 
 LINES = range(len(lines))
 # All unique nodes: combine nodes from loads, generators, and transmission lines
-all_nodes = set(int(n) for n in load_nodes) | set(int(n) for n in total_generators['bus'].values) | \
+all_nodes = set(int(n) for n in load_nodes) | \
+            set(int(n) for n in total_generators['bus'].values) | \
             set(int(n) for n in lines['from_node'].values) | set(int(n) for n in lines['to_node'].values)
 NODES = sorted(all_nodes)  # All unique nodes in the system
 
@@ -339,10 +331,9 @@ for t in range(time_step):  # Loop over time steps (hours)
     model = LP_OptimizationProblem(input_data['model0'])
     model.run()
     
-    # Market clearing price: use dual of balance constraint at reference node (node 13)
-    # Note: With nodal pricing, each node has its own Locational Marginal Price (LMP)
-    # The dual of the balance constraint at each node gives that node's LMP
-    mcp = model.results.optimal_duals['balance constraint node 13']
+    # Market clearing price at reference node (node 13)
+    # With the current nodal-balance sign convention, the economic price is the negative dual.
+    mcp = -model.results.optimal_duals['balance constraint node 13']
     
     total_generation = sum(model.results.variables[f'production of generator {g}'] for g in GENERATORS) #should always be the same  to demand as we set constraint to equality
     total_demand_served = sum(model.results.variables[f'demand of load {j}'] for j in LOADS)
@@ -420,7 +411,7 @@ for g in GENERATORS:
     print(f"{f'{g+1}':<10} {producer_profits[g]:<10.2f}") 
 print('\n') 
 print("Verifiy the market-clearing price using the KKT conditions")
-lam = model_selected.results.optimal_duals['balance constraint node 13']
+lam = -model_selected.results.optimal_duals['balance constraint node 13']
 print(f"MCP (λ) at reference node 13: {lam:.4f}")
 # Stationarity
 for g in GENERATORS:
@@ -444,6 +435,18 @@ print(f'  - Elastic Flexibility: {h["elastic_flexibility_pct"]:+.1f}%')
 
 
 print(f'Producer Surplus: €{h["producer_surplus"]:.2f}')
+
+# Transmission diagnostics for selected hour
+flow_values = {i: model_selected.results.variables[f'power flow line {i}'] for i in LINES}
+line_caps = {i: float(lines['capacity_MVA'][i]) for i in LINES}
+line_utilization = {i: abs(flow_values[i]) / line_caps[i] if line_caps[i] > 0 else 0 for i in LINES}
+binding_lines = [i for i in LINES if abs(abs(flow_values[i]) - line_caps[i]) <= 1e-4]
+
+print('\nTransmission diagnostics (selected hour):')
+print(f'Max line utilization: {max(line_utilization.values()) * 100:.2f}%')
+print(f'Number of binding line limits: {len(binding_lines)} out of {len(list(LINES))}')
+if binding_lines:
+    print('Binding lines (1-based index):', [i + 1 for i in binding_lines])
 
 fig, axes = plt.subplots(2, 2, figsize=(16, 10))
 
