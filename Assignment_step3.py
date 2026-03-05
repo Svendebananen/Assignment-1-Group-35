@@ -1,7 +1,17 @@
 # Howdy partner
 # ! Welcome to the wild west of coding. Let's wrangle some code together! 
 
-# step 1: single hour optimization with 6/17 elastic loads
+# step 3: single hour optimization with 6/17 elastic loads and tranmission line constraints
+# 
+# Nye elementer i forhold til Assignment_step1.py:
+# 1. Nodal balance constraints: En balance constraint per node i stedet for én global
+#    - Hver node: Generation - Demand - Outflow + Inflow = 0
+# 2. DC power flow model med eksplicitte flow variabler:
+#    - P_ij = (θ_i - θ_j) / X_ij (power flow fra node i til node j)
+#    - Transmission line constraints: -Capacity <= P_ij <= Capacity
+# 3. Reference bus constraint: θ_13 = 0 (slack bus ved node 13)
+#
+# Resultatet er nodal pricing hvor hver node har sin egen Locational Marginal Price (LMP)
 # imports
 import gurobipy as gp
 from gurobipy import GRB
@@ -52,7 +62,13 @@ class LP_OptimizationProblem():
         self._build_model() # build gurobi model
     
     def _build_variables(self):
-        self.variables = {v: self.model.addVar(lb=0, name=f'{v}') for v in self.data.VARIABLES}
+        self.variables = {}
+        for v in self.data.VARIABLES:
+            # Voltage angles and power flows can be negative
+            if 'voltage angle' in v or 'power flow' in v:
+                self.variables[v] = self.model.addVar(lb=-GRB.INFINITY, name=f'{v}')
+            else:
+                self.variables[v] = self.model.addVar(lb=0, name=f'{v}')
     
     def _build_constraints(self):
         self.constraints = {c:
@@ -111,33 +127,6 @@ class LP_OptimizationProblem():
                     label = f"capacity constraint {int(suffix) + 1}"
             print(f'Dual variable of {label}:', value)
 
-# USELESS?
-# def LP_builder(
-#         VARIABLES: list[str],
-#         CONSTRAINTS: list[str],
-#         objective_coeff: dict[str, float],              
-#         constraints_coeff: dict[str, dict[str,float]],  
-#         constraints_rhs: dict[str, float],              
-#         constraints_sense: dict[str, int],              
-#         objective_sense: int,                           
-#         model_name: str                                 
-# ): 
-#     # Build model
-#     model = gp.Model(name=model_name)
-
-#     # Add variables
-#     variables = {v: model.addVar(lb=0, name=f'{v}') for v in VARIABLES}
-
-#     # Objective
-#     objective = gp.quicksum(objective_coeff[v] * variables[v] for v in VARIABLES)
-#     model.setObjective(objective, objective_sense)
-
-#     # Constraints
-#     for c in CONSTRAINTS:
-#         model.addLConstr(gp.quicksum(constraints_coeff[c][v] * variables[v] for v in VARIABLES), constraints_sense[c], constraints_rhs[c], name=f'{c}')
-#     model.update()
-#     return model
-
 
 # Import data from case study
 date = '2019-08-31' # Choose data for wind turbine generation
@@ -161,6 +150,11 @@ wind_generator = pd.DataFrame({ # wind generators data, with capacity to be upda
 
 # Creating a single DataFrame with all generators (conventional + wind)
 total_generators =  pd.concat([conventional_generators, wind_generator], ignore_index = True)
+
+# Transmission lines data
+lines = pd.read_csv('transmission_lines.csv')
+
+
 
 # Load data upload
 loads = pd.read_csv('LoadData.csv', header = None, usecols = [1], names = ['demand'])  # load data (hourly system demand)
@@ -191,6 +185,11 @@ N_LOADS = len(load_distribution) # number of loads (17 total: 11 inelastic + 6 e
 time_step = 24 # time step in hours 
 GENERATORS = range(len(total_generators)) 
 LOADS = range(N_LOADS) 
+LINES = range(len(lines))
+# All unique nodes: combine nodes from loads, generators, and transmission lines
+all_nodes = set(int(n) for n in load_nodes) | set(int(n) for n in total_generators['bus'].values) | \
+            set(int(n) for n in lines['from_node'].values) | set(int(n) for n in lines['to_node'].values)
+NODES = sorted(all_nodes)  # All unique nodes in the system
 
 # Storage for results across all hours
 results_by_hour = []
@@ -226,60 +225,124 @@ for t in range(time_step):  # Loop over time steps (hours)
     })
     
     
+    # Build dictionaries to map nodes to generators and loads
+    generators_at_node = {n: [] for n in NODES}
+    for g in GENERATORS:
+        node = total_generators['bus'][g]
+        generators_at_node[node].append(g)
+    
+    loads_at_node = {n: [] for n in NODES}
+    for j in LOADS:
+        node = demand_data['node'][j]
+        loads_at_node[node].append(j)
+    
+    # Create dictionaries for lines entering and leaving each node
+    lines_from_node = {n: [] for n in NODES}
+    lines_to_node = {n: [] for n in NODES}
+    for i in LINES:
+        from_n = lines['from_node'][i]
+        to_n = lines['to_node'][i]
+        lines_from_node[from_n].append(i)
+        lines_to_node[to_n].append(i)
+    
     input_data = {
         'model0': LP_InputData(
             VARIABLES = [f'production of generator {g}' for g in GENERATORS] + \
-                        [f'demand of load {j}' for j in LOADS],
+                        [f'demand of load {j}' for j in LOADS] + \
+                        [f'voltage angle at node {n}' for n in NODES] + \
+                        [f'power flow line {i}' for i in LINES],
 
-            CONSTRAINTS = ['balance constraint'] + \
+            CONSTRAINTS = [f'balance constraint node {n}' for n in NODES] + \
                           [f'capacity constraint {g}' for g in GENERATORS] + \
                           [f'demand min limit {j}' for j in LOADS] + \
-                          [f'demand max limit {j}' for j in LOADS],
+                          [f'demand max limit {j}' for j in LOADS] + \
+                          [f'flow definition line {i}' for i in LINES] + \
+                          [f'transmission limit positive {i}' for i in LINES] + \
+                          [f'transmission limit negative {i}' for i in LINES] + \
+                          ['angle reference node constraint'],
             
             objective_coeff = {
                 # Consumer utility (positive)
                 **{f'demand of load {j}': demand_data['bid_price'][j] for j in LOADS},
                 # Generation cost (negative)
-                **{f'production of generator {g}': -total_generators['cost'][g] for g in GENERATORS}
+                **{f'production of generator {g}': -total_generators['cost'][g] for g in GENERATORS},
+                # Voltage angles and power flows don't affect objective
+                **{f'voltage angle at node {n}': 0 for n in NODES},
+                **{f'power flow line {i}': 0 for i in LINES}
             },
             
             constraints_coeff = {
-                # Balance constraint: total generation must equal total demand
-                'balance constraint': {
-                    **{f'demand of load {j}': 1 for j in LOADS},
-                    **{f'production of generator {g}': -1 for g in GENERATORS}
-                },
+                # Nodal balance: Generation - Demand - Outflow + Inflow = 0
+                **{f'balance constraint node {n}': {
+                    # Generation at this node
+                    **{f'production of generator {g}': 1 for g in generators_at_node[n]},
+                    # Demand at this node  
+                    **{f'demand of load {j}': -1 for j in loads_at_node[n]},
+                    # Outflows (lines leaving this node)
+                    **{f'power flow line {i}': -1 for i in lines_from_node[n]},
+                    # Inflows (lines entering this node)
+                    **{f'power flow line {i}': 1 for i in lines_to_node[n]}
+                } for n in NODES},
+                
+                # Flow definition: P_ij = (θ_i - θ_j) / X_ij
+                # Rearranged: P_ij * X_ij - θ_i + θ_j = 0
+                **{f'flow definition line {i}': {
+                    f'power flow line {i}': lines['reactance_pu'][i],
+                    f'voltage angle at node {lines["from_node"][i]}': -1,
+                    f'voltage angle at node {lines["to_node"][i]}': 1
+                } for i in LINES},
+                
                 # Generator capacity
                 **{f'capacity constraint {g}': {f'production of generator {k}': int(k == g) for k in GENERATORS} for g in GENERATORS},
+                
                 # Demand minimum limits
                 **{f'demand min limit {j}': {f'demand of load {j}': 1} for j in LOADS},
+                
                 # Demand maximum limits
-                **{f'demand max limit {j}': {f'demand of load {j}': 1} for j in LOADS}
+                **{f'demand max limit {j}': {f'demand of load {j}': 1} for j in LOADS},
+                
+                # Transmission capacity constraints: -Cap <= P_ij <= Cap
+                **{f'transmission limit positive {i}': {f'power flow line {i}': 1} for i in LINES},
+                **{f'transmission limit negative {i}': {f'power flow line {i}': 1} for i in LINES},
+                
+                # Reference node angle constraint (slack bus at node 13)
+                'angle reference node constraint': {f'voltage angle at node 13': 1}
             },
             
             constraints_rhs = {
-                'balance constraint': 0,
+                **{f'balance constraint node {n}': 0 for n in NODES},
+                **{f'flow definition line {i}': 0 for i in LINES},
                 **{f'capacity constraint {g}': total_generators['capacity'][g] for g in GENERATORS},
                 **{f'demand min limit {j}': demand_data['bid_quantity_min'][j] for j in LOADS},
-                **{f'demand max limit {j}': demand_data['bid_quantity_max'][j] for j in LOADS}
+                **{f'demand max limit {j}': demand_data['bid_quantity_max'][j] for j in LOADS},
+                **{f'transmission limit positive {i}': lines['capacity_MVA'][i] for i in LINES},
+                **{f'transmission limit negative {i}': -lines['capacity_MVA'][i] for i in LINES},
+                'angle reference node constraint': 0
             },
             
             constraints_sense = { 
-                'balance constraint': GRB.EQUAL,
+                **{f'balance constraint node {n}': GRB.EQUAL for n in NODES},
+                **{f'flow definition line {i}': GRB.EQUAL for i in LINES},
                 **{f'capacity constraint {g}': GRB.LESS_EQUAL for g in GENERATORS},
                 **{f'demand min limit {j}': GRB.GREATER_EQUAL for j in LOADS},
-                **{f'demand max limit {j}': GRB.LESS_EQUAL for j in LOADS}
+                **{f'demand max limit {j}': GRB.LESS_EQUAL for j in LOADS},
+                **{f'transmission limit positive {i}': GRB.LESS_EQUAL for i in LINES},
+                **{f'transmission limit negative {i}': GRB.GREATER_EQUAL for i in LINES},
+                'angle reference node constraint': GRB.EQUAL
             },
             
             objective_sense = GRB.MAXIMIZE, # maximize social welfare
-            model_name = "Market Clearing - 17 Loads (11 Inelastic + 6 Elastic)"
+            model_name = "Market Clearing - 17 Loads (11 Inelastic + 6 Elastic) - with Transmission Constraints"
      )
     }
     
     model = LP_OptimizationProblem(input_data['model0'])
     model.run()
     
-    mcp = model.results.optimal_duals['balance constraint']
+    # Market clearing price: use dual of balance constraint at reference node (node 13)
+    # Note: With nodal pricing, each node has its own Locational Marginal Price (LMP)
+    # The dual of the balance constraint at each node gives that node's LMP
+    mcp = model.results.optimal_duals['balance constraint node 13']
     
     total_generation = sum(model.results.variables[f'production of generator {g}'] for g in GENERATORS) #should always be the same  to demand as we set constraint to equality
     total_demand_served = sum(model.results.variables[f'demand of load {j}'] for j in LOADS)
@@ -343,7 +406,7 @@ results_df = pd.DataFrame(results_by_hour)
 
 # Print summary for the selected hour
 h = results_df[results_df['hour'] == hour + 1].iloc[0] 
-print('\n'f'Step 1 market-clearing outcomes for {hour + 1}:') 
+print('\n'f'Step 3 market-clearing outcomes for {hour + 1}:') 
 print(f'Market Clearing Price: €{h["mcp"]:.2f}/MWh') 
 print(f'Total Operatring Cost: €{h["total_cost"]:.2f}')
 print(f'Social Welfare: €{h["social_welfare"]:.2f}')
@@ -357,8 +420,8 @@ for g in GENERATORS:
     print(f"{f'{g+1}':<10} {producer_profits[g]:<10.2f}") 
 print('\n') 
 print("Verifiy the market-clearing price using the KKT conditions")
-lam = model_selected.results.optimal_duals['balance constraint']
-print(f"MCP (λ): {lam:.4f}")
+lam = model_selected.results.optimal_duals['balance constraint node 13']
+print(f"MCP (λ) at reference node 13: {lam:.4f}")
 # Stationarity
 for g in GENERATORS:
     mu = model_selected.results.optimal_duals[f'capacity constraint {g}']
