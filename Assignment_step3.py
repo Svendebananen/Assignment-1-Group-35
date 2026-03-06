@@ -185,6 +185,7 @@ NODES = sorted(all_nodes)  # All unique nodes in the system
 
 # Storage for results across all hours
 results_by_hour = []
+lmp_rows = []
 for t in range(time_step):  # Loop over time steps (hours)
     wind_generator['capacity'] = wind_capacity[:, t] # Update wind generator capacities for the current hour based on CSV data
     total_generators =  pd.concat([conventional_generators, wind_generator], ignore_index=True) # Update total generators DataFrame with the new wind generator capacities for the current hour
@@ -331,9 +332,17 @@ for t in range(time_step):  # Loop over time steps (hours)
     model = LP_OptimizationProblem(input_data['model0'])
     model.run()
     
+    # Nodal LMPs are the negatives of nodal-balance duals with this sign convention.
+    lmp_by_node = {
+        n: -model.results.optimal_duals[f'balance constraint node {n}']
+        for n in NODES
+    }
+
     # Market clearing price at reference node (node 13)
-    # With the current nodal-balance sign convention, the economic price is the negative dual.
-    mcp = -model.results.optimal_duals['balance constraint node 13']
+    mcp = lmp_by_node[13]
+
+    for n in NODES:
+        lmp_rows.append({'hour': t + 1, 'node': n, 'lmp': lmp_by_node[n]})
     
     total_generation = sum(model.results.variables[f'production of generator {g}'] for g in GENERATORS) #should always be the same  to demand as we set constraint to equality
     total_demand_served = sum(model.results.variables[f'demand of load {j}'] for j in LOADS)
@@ -360,9 +369,10 @@ for t in range(time_step):  # Loop over time steps (hours)
     # Also calculate curtailment from MAX (110%) for reference
     elastic_max_possible = elastic_demand_base * 1.10
     elastic_curtailment_from_max = (1 - elastic_served / elastic_max_possible) * 100 if elastic_max_possible > 0 else 0
-    if t == 4:  # Store detailed results for the hour selected for merit order curve analysis
+    if t == hour:  # Store detailed results for the selected hour
         model_selected = model
         generators_selected = total_generators.copy()
+        lmp_by_node_selected = lmp_by_node.copy()
         producer_profits = {}
         utility_by_load = {}
 
@@ -393,6 +403,7 @@ for t in range(time_step):  # Loop over time steps (hours)
         'producer_surplus': producer_surplus
     }) 
 results_df = pd.DataFrame(results_by_hour)
+# lmp_df = pd.DataFrame(lmp_rows) Could be used for nodal price analysis across hours if needed
 
 
 # Print summary for the selected hour
@@ -401,6 +412,11 @@ print('\n'f'Step 3 market-clearing outcomes for {hour + 1}:')
 print(f'Market Clearing Price: €{h["mcp"]:.2f}/MWh') 
 print(f'Total Operatring Cost: €{h["total_cost"]:.2f}')
 print(f'Social Welfare: €{h["social_welfare"]:.2f}')
+print('\n')
+print("Locational Marginal Price (LMP) by node:")
+print(f"{'Node':<10} {'LMP (€/MWh)':<15}")
+for n in NODES:
+    print(f"{n:<10} {lmp_by_node_selected[n]:<15.4f}")
 print('\n')
 print(f"{'Node':<10}  {'Utility':<10}")
 for j in LOADS:
