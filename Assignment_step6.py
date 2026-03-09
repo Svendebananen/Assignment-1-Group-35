@@ -150,7 +150,7 @@ wind_generator = pd.DataFrame({ # wind generators data, with capacity to be upda
         'cost': [0.0 for i in range(wind_capacity.shape[0])]
     }) 
 
-# creating a single DataFrame with all generators (conventional + wind)
+# Creating a single DataFrame with all generators (conventional + wind)
 total_generators =  pd.concat([conventional_generators, wind_generator], ignore_index = True)
 
 # Load data upload
@@ -172,88 +172,21 @@ elastic_bid_prices = {
     15: 25.0,   # less flexible, close to peak generator cost
 }
 
-
 # Creating a DataFrame to concatenate later
 # Hour selected for merit order curve analysis (0-based index)
 hour = 4  # hour 5
 
-
-
+# Optimization for each hour
 # Define ranges and indexes
 N_GENERATORS = len(total_generators) # number of generators (12 conventional + 6 wind)
 N_LOADS = len(load_distribution) # number of loads (17 total: 11 inelastic + 6 elastic)
 time_step = 24 # time step in hours 
 GENERATORS = range(len(total_generators)) 
-FLEXIBLE_GENERATORS = [1,4,5,6,8,9]
-LOADS = range(N_LOADS)  
+LOADS = range(N_LOADS) 
 
-# RESERVE MARKET OPTIMIZATION 
-# Optimization for each hour
-input_data = {
-        'model_reserve': LP_InputData(
-            VARIABLES = [f'production of generator {g}' for g in GENERATORS] + \
-                        [f'demand of load {j}' for j in LOADS],
-
-            CONSTRAINTS = ['balance constraint'] + \
-                          [f'capacity constraint {g}' for g in GENERATORS] + \
-                          [f'demand min limit {j}' for j in LOADS] + \
-                          [f'demand max limit {j}' for j in LOADS],
-            
-            objective_coeff = {
-                # Consumer utility (positive)
-                **{f'demand of load {j}': demand_data['bid_price'][j] for j in LOADS},
-                # Generation cost (negative)
-                **{f'production of generator {g}': -total_generators['cost'][g] for g in GENERATORS}
-            },
-            
-            constraints_coeff = {
-                # Balance constraint: total generation must equal total demand
-                'balance constraint': {
-                    **{f'demand of load {j}': 1 for j in LOADS},
-                    **{f'production of generator {g}': -1 for g in GENERATORS}
-                },
-                # Generator capacity
-                **{f'capacity constraint {g}': {f'production of generator {k}': int(k == g) for k in GENERATORS} for g in GENERATORS},
-                # Demand minimum limits
-                **{f'demand min limit {j}': {f'demand of load {j}': 1} for j in LOADS},
-                # Demand maximum limits
-                **{f'demand max limit {j}': {f'demand of load {j}': 1} for j in LOADS}
-            },
-            
-            constraints_rhs = {
-                'balance constraint': 0,
-                **{f'capacity constraint {g}': total_generators['capacity'][g] for g in GENERATORS},
-                **{f'demand min limit {j}': demand_data['bid_quantity_min'][j] for j in LOADS},
-                **{f'demand max limit {j}': demand_data['bid_quantity_max'][j] for j in LOADS}
-            },
-            
-            constraints_sense = { 
-                'balance constraint': GRB.EQUAL,
-                **{f'capacity constraint {g}': GRB.LESS_EQUAL for g in GENERATORS},
-                **{f'demand min limit {j}': GRB.GREATER_EQUAL for j in LOADS},
-                **{f'demand max limit {j}': GRB.LESS_EQUAL for j in LOADS}
-            },
-            
-            objective_sense = GRB.MINIMIZE, # minimize TSO costs
-            model_name = "Reserve Market Clearing"
-     )
-    }
-    
-model = LP_OptimizationProblem(input_data['model_reserve'])
-model.run()
-
-
-
-
-
-
-
-
-
-
-
-# DAY-AHEAD MARKET OPTIMIZATION
-# Optimization for each hour 
+# Step 6 parameters 
+upward_percentage = 0.15 # percentage of the total demand bid in the corresponding hour
+downward_percentage = 0.10 # percentage of the total demand bid in the corresponding hour
 
 # Storage for results across all hours
 results_by_hour = []
