@@ -1,6 +1,3 @@
-# Howdy partner
-# ! Welcome to the wild west of coding. Let's wrangle some code together! 
-
 # step 2: multi-hour optimization with battery storage
 # imports
 import gurobipy as gp
@@ -17,7 +14,6 @@ os.chdir(Path(__file__).parent)
 env = gp.Env(empty=True)
 env.setParam('OutputFlag', 0)
 env.start()  
-# os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 class Expando(object):
     pass
@@ -135,7 +131,7 @@ def build_multi_hour_input_data(
         f'production of generator {g} at hour {t}': -generator_cost[g]
         for t in time_range for g in generators_range
     }
-    # Battery at zero cost
+    # Battery bid is zero
     for t in time_range:
         objective_coeff[f'battery charge at hour {t}'] = 0
         objective_coeff[f'battery discharge at hour {t}'] = 0
@@ -209,7 +205,9 @@ def build_multi_hour_input_data(
         constraints_rhs[f'battery SOC limit at hour {t}'] = BATTERY_ENERGY_MAX
         constraints_sense[f'battery SOC limit at hour {t}'] = GRB.LESS_EQUAL
 
-        # Battery dynamics: e_t = e_{t-1} + eta_ch * p_ch_t - p_dis_t / eta_dis
+        # Battery dynamics: e_t = e_{t-1} + eta_ch * p_ch_t - p_dis_t / eta_dis 
+        # which is rearranged to: e_t - eta_ch * p_ch_t + p_dis_t / eta_dis - e_{t-1} = 0
+        # At t=0, we set e_{-1} = BATTERY_INITIAL_SOC, so the constraint becomes: e_0 - eta_ch * p_ch_0 + p_dis_0 / eta_dis = BATTERY_INITIAL_SOC
         batt_dyn = f'battery dynamics at hour {t}'
         constraints_coeff[batt_dyn] = {
             f'battery SOC at hour {t}': 1,
