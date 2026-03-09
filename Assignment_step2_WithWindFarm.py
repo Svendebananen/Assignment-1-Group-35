@@ -354,18 +354,6 @@ for t in range(time_step):
 # Plots
 # Plot 1: Market Clearing Price
 mcp_by_hour = {t: multi_hour_model.results.optimal_duals.get(f'balance constraint at hour {t}', 0) for t in range(time_step)}
-
-plt.figure(figsize=(12, 6))
-plt.plot(list(mcp_by_hour.keys()), list(mcp_by_hour.values()), marker='o', linewidth=2, markersize=8, color='blue')
-plt.xlabel('Hour', fontsize=12)
-plt.ylabel('Market Clearing Price (€/MWh)', fontsize=12)
-plt.title('Market Clearing Price Across 24 Hours', fontsize=14, fontweight='bold')
-plt.grid(True, alpha=0.3)
-plt.xticks(range(time_step))
-plt.tight_layout()
-plt.show()
-
-# Plot 2: Generation and demand
 served_demand_plot = []
 conventional_generation = []
 wind_generation = []
@@ -381,28 +369,32 @@ for t in range(time_step):
 
 hours_plot = list(range(time_step))
 
-plt.figure(figsize=(12, 6))
-plt.plot(hours_plot, load_capacity.values, marker='s', linewidth=2, color='green', label='Base Load')
-plt.plot(hours_plot, served_demand_plot, marker='^', linewidth=2, color='orange', label='Served Demand')
-plt.plot(hours_plot, conventional_generation, marker='o', linewidth=2, color='red', label='Total Generation')
-plt.plot(hours_plot, wind_generation, marker='d', linewidth=2, color='blue', label='Wind Generation')
-plt.xlabel('Hour', fontsize=12)
-plt.ylabel('Power (MW)', fontsize=12)
-plt.title('System Generation and Demand Across 24 Hours', fontsize=14, fontweight='bold')
-plt.grid(True, alpha=0.3)
-plt.legend()
-plt.xticks(hours_plot)
-plt.tight_layout()
-plt.show()
+fig, axes = plt.subplots(3, 1, figsize=(14, 12), sharex=True)
+
+# Plot 1: Market Clearing Price
+axes[0].plot(list(mcp_by_hour.keys()), list(mcp_by_hour.values()), marker='o', linewidth=2, markersize=6, color='blue')
+axes[0].set_ylabel('MCP (€/MWh)', fontsize=11)
+axes[0].set_title('Market Clearing Price Across 24 Hours', fontsize=13, fontweight='bold')
+axes[0].grid(True, alpha=0.3)
+
+# Plot 2: Generation and demand
+axes[1].plot(hours_plot, load_capacity.values, marker='s', linewidth=2, color='green', label='Base Load')
+axes[1].plot(hours_plot, served_demand_plot, marker='^', linewidth=2, color='orange', label='Served Demand')
+axes[1].plot(hours_plot, conventional_generation, marker='o', linewidth=2, color='red', label='Total Generation')
+axes[1].plot(hours_plot, wind_generation, marker='d', linewidth=2, color='blue', label='Wind Generation')
+axes[1].set_ylabel('Power (MW)', fontsize=11)
+axes[1].set_title('System Generation and Demand Across 24 Hours', fontsize=13, fontweight='bold')
+axes[1].grid(True, alpha=0.3)
+axes[1].legend()
 
 # Plot 3: Battery SOC
-plt.figure(figsize=(12, 6))
-plt.plot(hours_plot, battery_soc_plot, marker='o', linewidth=2, color='purple', label='Battery SOC')
-plt.xlabel('Hour', fontsize=12)
-plt.ylabel('State of Charge (MWh)', fontsize=12)
-plt.title('Battery State of Charge Across 24 Hours', fontsize=14, fontweight='bold')
-plt.grid(True, alpha=0.3)
-plt.legend()
-plt.xticks(hours_plot)
-plt.tight_layout()
+axes[2].plot(hours_plot, battery_soc_plot, marker='o', linewidth=2, color='purple', label='Battery SOC')
+axes[2].set_xlabel('Hour', fontsize=11)
+axes[2].set_ylabel('SOC (MWh)', fontsize=11)
+axes[2].set_title('Battery State of Charge Across 24 Hours', fontsize=13, fontweight='bold')
+axes[2].grid(True, alpha=0.3)
+axes[2].legend()
+axes[2].set_xticks(hours_plot)
+
+fig.tight_layout()
 plt.show()
