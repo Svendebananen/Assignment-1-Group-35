@@ -1,6 +1,3 @@
-# Howdy partner
-# ! Welcome to the wild west of coding. Let's wrangle some code together! 
-
 # step 1: single hour optimization with 6/17 elastic loads
 # imports
 import gurobipy as gp
@@ -154,21 +151,22 @@ elastic_bid_prices = {
     14: 25.0,   # mid-range flexibility
     15: 31.0,   # less flexible, close to peak generator cost
 }
+VOLL = 500  
 
 # Hour selected for merit order curve analysis (0-based index)
-hour = 8  # hour 5
+HOUR = 8  # hour 5
 
 # Optimization for each hour
 # Define ranges and indexes
 N_GENERATORS = len(total_generators) # number of generators (12 conventional + 6 wind)
 N_LOADS = len(load_distribution) # number of loads (17 total: 11 inelastic + 6 elastic)
-time_step = 24 # time step in hours 
+TIME_STEPS = 24 # time step in hours 
 GENERATORS = range(len(total_generators)) 
 LOADS = range(N_LOADS) 
 
 # Storage for results across all hours
 results_by_hour = []
-for t in range(time_step):  # Loop over time steps (hours)
+for t in range(TIME_STEPS):  # Loop over time steps (hours)
     wind_generator['capacity'] = wind_capacity[:, t] # Update wind generator capacities for the current hour based on CSV data
     total_generators =  pd.concat([conventional_generators, wind_generator], ignore_index=True) # Update total generators DataFrame with the new wind generator capacities for the current hour
     
@@ -185,12 +183,12 @@ for t in range(time_step):  # Loop over time steps (hours)
         
         if node in elastic_nodes:
             bid_quantities_min.append(0)
-            bid_quantities_max.append(demand_at_node * 1.10)
+            bid_quantities_max.append(demand_at_node)
             bid_prices.append(elastic_bid_prices[node])
         else:
             bid_quantities_min.append(demand_at_node * 1.00)
             bid_quantities_max.append(demand_at_node * 1.00)
-            bid_prices.append(500.0) # high bid price to ensure the inelastic load are always accepted - Value of Lost Load
+            bid_prices.append(VOLL) # high bid price to ensure the inelastic load are always accepted - Value of Lost Load
     
     demand_data = pd.DataFrame({
         'node': load_nodes,
@@ -278,9 +276,9 @@ for t in range(time_step):  # Loop over time steps (hours)
     elastic_flexibility_pct = (elastic_served / elastic_demand_base - 1) * 100 if elastic_demand_base > 0 else 0
     
     # Also calculate curtailment from MAX (110%) for reference
-    elastic_max_possible = elastic_demand_base * 1.10
+    elastic_max_possible = elastic_demand_base
     elastic_curtailment_from_max = (1 - elastic_served / elastic_max_possible) * 100 if elastic_max_possible > 0 else 0
-    if t == hour:  # Store detailed results for the hour selected for merit order curve analysis
+    if t == HOUR:  # Store detailed results for the hour selected for merit order curve analysis
         model_selected = model
         generators_selected = total_generators.copy() 
         demand_data_selected = demand_data.copy()
@@ -317,8 +315,8 @@ results_df = pd.DataFrame(results_by_hour)
 
 
 # Print summary for the selected hour
-h = results_df[results_df['hour'] == hour + 1].iloc[0] 
-print('\n'f'Step 1 market-clearing outcomes for {hour + 1}:') 
+h = results_df[results_df['hour'] == HOUR + 1].iloc[0] 
+print('\n'f'Step 1 market-clearing outcomes for {HOUR + 1}:') 
 print(f'Market Clearing Price: €{h["mcp"]:.2f}/MWh') 
 print(f'Total Operatring Cost: €{h["total_cost"]:.2f}')
 print(f'Social Welfare: €{h["social_welfare"]:.2f}')
@@ -416,11 +414,11 @@ plt.savefig(plots_dir / '24h_market_results.png', dpi=150, bbox_inches='tight')
 plt.close()
 
 # ============================================================================
-# MERIT ORDER CURVE + DEMAND CURVE (chosen hour) - Split Y-axis plot
+# MERIT ORDER CURVE + DEMAND CURVE (chosen hour)
 # ============================================================================
 
 # --- Supply curve data ---
-wind_generator['capacity'] = wind_capacity[:, hour]
+wind_generator['capacity'] = wind_capacity[:, HOUR]
 moc_generators = pd.concat([conventional_generators, wind_generator], ignore_index=True)
 moc_generators_sorted = moc_generators.copy().sort_values(by=["cost"])
 
@@ -439,7 +437,7 @@ for j, node in enumerate(load_nodes):
     if node in elastic_nodes:
         demand_bids.append((qty_max, elastic_bid_prices[node]))
     else:
-        demand_bids.append((qty_max, 500.0))  # VoLL for inelastic loads
+        demand_bids.append((qty_max, VOLL))  # VoLL for inelastic loads
 
 # Sort by bid price descending (highest willingness to pay first)
 demand_bids.sort(key=lambda x: x[1], reverse=True)
@@ -458,9 +456,9 @@ demand_x.append(demand_cumulative[-1])
 demand_y.append(0)
 
 # MCP from optimizer (dual variable of balance constraint)
-moc_equilibrium = results_df.loc[results_df['hour'] == hour + 1, 'mcp'].values[0]
+moc_equilibrium = results_df.loc[results_df['hour'] == HOUR + 1, 'mcp'].values[0]
 
-# --- Plot: split Y-axis (broken axis) ---
+# --- Plot: split Y-axis ---
 # Top panel: inelastic demand at VoLL (€500)
 # Bottom panel: elastic bids and MCP zone (0–45 €/MWh)
 fig, (ax_top, ax_bottom) = plt.subplots(
@@ -484,7 +482,7 @@ for ax in (ax_top, ax_bottom):
 
 # Top panel shows only the VoLL region
 ax_top.set_ylim(470, 530)
-ax_top.set_yticks([500])
+ax_top.set_yticks([VOLL])
 ax_top.set_ylabel('VoLL (€/MWh)', fontsize=10)
 ax_top.spines['bottom'].set_visible(False)
 ax_top.tick_params(bottom=False)
@@ -497,15 +495,6 @@ ax_bottom.set_xlabel('Cumulative Capacity / Demand (MW)', fontsize=12, fontweigh
 ax_bottom.spines['top'].set_visible(False)
 ax_bottom.legend(fontsize=11, loc='upper right')
 
-# # Add dashed reference lines for each elastic bid price
-# for bid_price in sorted(set(elastic_bid_prices.values())):
-#     ax_bottom.axhline(y=bid_price, color='red', linestyle=':', linewidth=0.8, alpha=0.5)
-#     ax_bottom.annotate(
-#         f'€{bid_price}/MWh',
-#         xy=(demand_cumulative[-1] * 1.13, bid_price),
-#         fontsize=8, color='darkred', va='center'
-#     )
-
 # --- Broken axis indicators (diagonal marks at the split) ---
 d = 0.015  # size of diagonal marks
 kwargs = dict(transform=ax_top.transAxes, color='k', clip_on=False, linewidth=1.5)
@@ -517,8 +506,8 @@ ax_bottom.plot((-d, +d), (1 - d, 1 + d), **kwargs)        # top-left of bottom p
 ax_bottom.plot((1 - d, 1 + d), (1 - d, 1 + d), **kwargs)  # top-right of bottom panel
 
 # --- Title and save ---
-fig.suptitle(f'Merit Order & Demand Curve - Hour {hour + 1}',
+fig.suptitle(f'Merit Order & Demand Curve - Hour {HOUR + 1}',
              fontsize=14, fontweight='bold', y=0.98)
 
-plt.savefig(plots_dir / f'merit_order_hour_{hour + 1}.png', dpi=150, bbox_inches='tight')
+plt.savefig(plots_dir / f'merit_order_hour_{HOUR + 1}.png', dpi=150, bbox_inches='tight')
 plt.show()
