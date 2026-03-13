@@ -154,7 +154,7 @@ elastic_bid_prices = {
 VOLL = 500  
 
 # Hour selected for merit order curve analysis (0-based index)
-HOUR = 8  # hour 5
+HOUR = 8  
 
 # Optimization for each hour
 # Define ranges and indexes
@@ -186,8 +186,8 @@ for t in range(TIME_STEPS):  # Loop over time steps (hours)
             bid_quantities_max.append(demand_at_node)
             bid_prices.append(elastic_bid_prices[node])
         else:
-            bid_quantities_min.append(demand_at_node * 1.00)
-            bid_quantities_max.append(demand_at_node * 1.00)
+            bid_quantities_min.append(demand_at_node)
+            bid_quantities_max.append(demand_at_node)
             bid_prices.append(VOLL) # high bid price to ensure the inelastic load are always accepted - Value of Lost Load
     
     demand_data = pd.DataFrame({
@@ -258,7 +258,6 @@ for t in range(TIME_STEPS):  # Loop over time steps (hours)
     
     # Calculate elastic vs inelastic served
     elastic_demand_base = sum(total_demand * load_percentages[node] for node in elastic_nodes)
-    inelastic_demand_base = sum(total_demand * load_percentages[node] for node in load_nodes if node not in elastic_nodes)
     
     elastic_served = sum(model.results.variables[f'demand of load {j}'] for j, node in enumerate(load_nodes) if node in elastic_nodes)
     inelastic_served = sum(model.results.variables[f'demand of load {j}'] for j, node in enumerate(load_nodes) if node not in elastic_nodes)
@@ -275,9 +274,6 @@ for t in range(TIME_STEPS):  # Loop over time steps (hours)
     # Negative = curtailed (below base), Positive = increased (above base)
     elastic_flexibility_pct = (elastic_served / elastic_demand_base - 1) * 100 if elastic_demand_base > 0 else 0
     
-    # Also calculate curtailment from MAX (110%) for reference
-    elastic_max_possible = elastic_demand_base
-    elastic_curtailment_from_max = (1 - elastic_served / elastic_max_possible) * 100 if elastic_max_possible > 0 else 0
     if t == HOUR:  # Store detailed results for the hour selected for merit order curve analysis
         model_selected = model
         generators_selected = total_generators.copy() 
@@ -305,7 +301,6 @@ for t in range(TIME_STEPS):  # Loop over time steps (hours)
         'demand_elastic': elastic_served,
         'elastic_base': elastic_demand_base,
         'elastic_flexibility_pct': elastic_flexibility_pct,
-        'elastic_curtailment_from_max': elastic_curtailment_from_max,
         'social_welfare': social_welfare,
         'total_cost': total_cost,
         'demand_utility': demand_utility,
