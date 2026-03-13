@@ -1,0 +1,7 @@
+node,   bid, comments
+1,  8.0,    price-sensitive industrial load
+7,  30.0,    commercial load
+9,  9.0,    very price-sensitive curtails early
+13, 28.0,    commercial/industrial mix
+14, 25.0,    mid-range flexibility
+15, 31.0,    less flexible close to peak generator cost
