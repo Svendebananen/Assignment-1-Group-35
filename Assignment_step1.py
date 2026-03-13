@@ -412,8 +412,8 @@ axes[1, 1].grid(True, alpha=0.3, axis='y')
 axes[1, 1].set_xticks(range(1, 25))
 
 plt.tight_layout() 
-plt.savefig(plots_dir / '24h_market_results.png', dpi=150, bbox_inches='tight')
-#plt.show()
+plt.savefig(plots_dir / '24h_market_results.png', dpi=150, bbox_inches='tight') 
+plt.close()
 
 # ============================================================================
 # MERIT ORDER CURVE + DEMAND CURVE (chosen hour) - Split Y-axis plot
