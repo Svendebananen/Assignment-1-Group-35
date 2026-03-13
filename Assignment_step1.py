@@ -6,7 +6,6 @@
 import gurobipy as gp
 from gurobipy import GRB
 import pandas as pd
-import glob
 import numpy as np
 import matplotlib.pyplot as plt
 # importing os library to consider the same folder of this file for the csv reading
@@ -32,9 +31,9 @@ class LP_InputData:
         self, 
         VARIABLES: list[str],
         CONSTRAINTS: list[str],
-        objective_coeff: dict[str, float],               # Coefficients in objective function
-        constraints_coeff: dict[str, dict[str,float]],    # Linear coefficients of constraints
-        constraints_rhs: dict[str, float],                # Right hand side coefficients of constraints
+        objective_coeff: dict[str, float],              # Coefficients in objective function
+        constraints_coeff: dict[str, dict[str,float]],  # Linear coefficients of constraints
+        constraints_rhs: dict[str, float],              # Right hand side coefficients of constraints
         constraints_sense: dict[str, int],              # Direction of constraints
         objective_sense: int,                           # Direction of optimization
         model_name: str                                 # Name of model
@@ -157,7 +156,7 @@ elastic_bid_prices = {
 }
 
 # Hour selected for merit order curve analysis (0-based index)
-hour = 4  # hour 5
+hour = 8  # hour 5
 
 # Optimization for each hour
 # Define ranges and indexes
@@ -212,7 +211,7 @@ for t in range(time_step):  # Loop over time steps (hours)
                           [f'demand max limit {j}' for j in LOADS],
             
             objective_coeff = {
-                # Consumer utility (positive)
+                # Demand utility (positive)
                 **{f'demand of load {j}': demand_data['bid_price'][j] for j in LOADS},
                 # Generation cost (negative)
                 **{f'production of generator {g}': -total_generators['cost'][g] for g in GENERATORS}
@@ -270,7 +269,7 @@ for t in range(time_step):  # Loop over time steps (hours)
     
     social_welfare = model.results.objective_value
     
-    consumer_utility = sum(demand_data['bid_price'][j] * model.results.variables[f'demand of load {j}'] for j in LOADS)
+    demand_utility = sum((demand_data['bid_price'][j] - mcp) * model.results.variables[f'demand of load {j}'] for j in LOADS)
     
     producer_surplus = mcp * total_generation - total_cost
     
@@ -281,7 +280,7 @@ for t in range(time_step):  # Loop over time steps (hours)
     # Also calculate curtailment from MAX (110%) for reference
     elastic_max_possible = elastic_demand_base * 1.10
     elastic_curtailment_from_max = (1 - elastic_served / elastic_max_possible) * 100 if elastic_max_possible > 0 else 0
-    if t == 4:  # Store detailed results for the hour selected for merit order curve analysis
+    if t == hour:  # Store detailed results for the hour selected for merit order curve analysis
         model_selected = model
         generators_selected = total_generators.copy() 
         demand_data_selected = demand_data.copy()
@@ -311,7 +310,7 @@ for t in range(time_step):  # Loop over time steps (hours)
         'elastic_curtailment_from_max': elastic_curtailment_from_max,
         'social_welfare': social_welfare,
         'total_cost': total_cost,
-        'consumer_utility': consumer_utility,
+        'demand_utility': demand_utility,
         'producer_surplus': producer_surplus
     }) 
 results_df = pd.DataFrame(results_by_hour)
@@ -414,14 +413,13 @@ axes[1, 1].set_xticks(range(1, 25))
 
 plt.tight_layout() 
 plt.savefig(plots_dir / '24h_market_results.png', dpi=150, bbox_inches='tight')
-plt.show()
+#plt.show()
 
 # ============================================================================
 # MERIT ORDER CURVE + DEMAND CURVE (chosen hour) - Split Y-axis plot
 # ============================================================================
 
 # --- Supply curve data ---
-moc_total_demand = loads['demand'][hour]
 wind_generator['capacity'] = wind_capacity[:, hour]
 moc_generators = pd.concat([conventional_generators, wind_generator], ignore_index=True)
 moc_generators_sorted = moc_generators.copy().sort_values(by=["cost"])
@@ -437,11 +435,11 @@ for i in range(len(moc_generators_sorted)):
 # Use accepted quantities from the optimizer (not theoretical max)
 demand_bids = []
 for j, node in enumerate(load_nodes):
-    qty_accepted = model_selected.results.variables[f'demand of load {j}']
+    qty_max = demand_data_selected['bid_quantity_max'].iloc[j]  # full offered quantity
     if node in elastic_nodes:
-        demand_bids.append((qty_accepted, elastic_bid_prices[node]))
+        demand_bids.append((qty_max, elastic_bid_prices[node]))
     else:
-        demand_bids.append((qty_accepted, 500.0))  # VoLL for inelastic loads
+        demand_bids.append((qty_max, 500.0))  # VoLL for inelastic loads
 
 # Sort by bid price descending (highest willingness to pay first)
 demand_bids.sort(key=lambda x: x[1], reverse=True)
