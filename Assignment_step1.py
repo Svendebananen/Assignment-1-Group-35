@@ -142,21 +142,18 @@ load_distribution = pd.read_csv('load_distribution_1.csv')  # nodal load shares
 load_nodes = load_distribution['node'].tolist()  # list of all load nodes
 load_percentages = dict(zip(load_distribution['node'], load_distribution['pct_of_system_load'] / 100))  # fraction of total demand per node
 
+#define the path and clear eventual spaces in the csv
+df = pd.read_csv('elastic_data.csv')
+df.columns = df.columns.str.strip()
+
 # List of elastic loads: nodes 1, 7, 9, 13, 14, 15
-elastic_nodes = [1, 7, 9, 13, 14, 15]
+elastic_nodes = df['node'].tolist()
 
 # Bid prices for elastic loads (€/MWh) — differentiated, consistent with generation costs (€5.47–26.11/MWh)
-elastic_bid_prices = {
-    1:  8.0,   # price-sensitive industrial load
-    7:  30.0,   # commercial load
-    9:  9.0,   # very price-sensitive, curtails early
-    13: 28.0,   # commercial/industrial mix
-    14: 25.0,   # mid-range flexibility
-    15: 31.0,   # less flexible, close to peak generator cost
-}
+elastic_bid_prices = elastic_bid_prices = df.set_index('node')['bid'].to_dict()
 
 # Hour selected for merit order curve analysis (0-based index)
-hour = 8  # hour 5
+hour = 8  
 
 # Optimization for each hour
 # Define ranges and indexes

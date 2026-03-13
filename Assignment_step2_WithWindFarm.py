@@ -262,11 +262,15 @@ load_distribution = pd.read_csv('load_distribution_1.csv')
 load_nodes = load_distribution['node'].tolist()
 load_percentages = dict(zip(load_distribution['node'], load_distribution['pct_of_system_load'] / 100))
 
-# List of elastic loads: nodes 1, 7, 9, 13, 14, 15
-elastic_nodes = [1, 7, 9, 13, 14, 15] 
+#define the path and clear eventual spaces in the csv
+df = pd.read_csv('elastic_data.csv')
+df.columns = df.columns.str.strip()
 
-# Bid prices for elastic loads
-elastic_bid_prices = {1: 8.0, 7: 30.0, 9: 9.0, 13: 28.0, 14: 25.0, 15: 31.0} 
+# List of elastic loads: nodes 1, 7, 9, 13, 14, 15
+elastic_nodes = df['node'].tolist()
+
+# Bid prices for elastic loads (€/MWh) — differentiated, consistent with generation costs (€5.47–26.11/MWh)
+elastic_bid_prices = elastic_bid_prices = df.set_index('node')['bid'].to_dict()
 
 # demand bid quantities and bid prices must vary across hours (comparatively higher during peak hours)
 peak_multiplier = {t: 1.3 if t in range(7, 10) or t in range(16, 20) else 1.0 for t in range(24)}
