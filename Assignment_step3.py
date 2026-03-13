@@ -2,8 +2,7 @@
 # ! Welcome to the wild west of coding. Let's wrangle some code together! 
 
 # step 3: single hour optimization with 6/17 elastic loads and tranmission line constraints
-# 
-# imports
+
 import gurobipy as gp
 from gurobipy import GRB
 import pandas as pd
@@ -12,6 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 # importing os library to consider the same folder of this file for the csv reading
 import os
+from types import SimpleNamespace
 from pathlib import Path
 os.chdir(Path(__file__).parent)
 
@@ -20,8 +20,8 @@ env = gp.Env(empty=True)
 env.setParam('OutputFlag', 0)
 env.start() 
 
-class Expando(object):
-    pass
+Expando = SimpleNamespace
+data = Expando()
 
 #define classes for input data and optimization problem
 class LP_InputData:
@@ -33,7 +33,7 @@ class LP_InputData:
         objective_coeff: dict[str, float],               # Coefficients in objective function
         constraints_coeff: dict[str, dict[str,float]],    # Linear coefficients of constraints
         constraints_rhs: dict[str, float],                # Right hand side coefficients of constraints
-        constraints_sense: dict[str, int],              # Direction of constraints
+        constraints_sense: dict[str, str],              # Direction of constraints
         objective_sense: int,                           # Direction of optimization
         model_name: str                                 # Name of model
     ):
@@ -130,7 +130,7 @@ file_list = glob.glob(r'Ninja\*.csv')
 for i,csv in enumerate(file_list):
   data = pd.read_csv(csv, header = None,names = ['time','local_time','capacity_factor'], skiprows = 4)
   index = data.loc[data['time'] == date + ' 00:00'].index[0] # Find the index of the row corresponding to the specified date starting at 00:00
-  wind_capacity[i,:] = data['capacity_factor'][index:index+24].values*200 
+  wind_capacity[i,:] = data['capacity_factor'][index:index+24].values * 200 
 
 wind_generator = pd.DataFrame({ # wind generators data, with capacity to be updated for each hour based on CSV files
         'id': [f'wind_{i}' for i in range(wind_capacity.shape[0])],
@@ -153,18 +153,15 @@ load_distribution = pd.read_csv('load_distribution_1.csv')  # nodal load shares
 load_nodes = load_distribution['node'].tolist()  # list of all load nodes
 load_percentages = dict(zip(load_distribution['node'], load_distribution['pct_of_system_load'] / 100))  # fraction of total demand per node
 
+#define the path and clear eventual spaces in the csv
+df = pd.read_csv('elastic_data.csv')
+df.columns = df.columns.str.strip()
+
 # List of elastic loads: nodes 1, 7, 9, 13, 14, 15
-elastic_nodes = [1, 7, 9, 13, 14, 15]
+elastic_nodes = df['node'].tolist()
 
 # Bid prices for elastic loads (€/MWh) — differentiated, consistent with generation costs (€5.47–26.11/MWh)
-elastic_bid_prices = {
-    1:  12.0,   # price-sensitive industrial load
-    7:  22.0,   # commercial load
-    9:  10.0,   # very price-sensitive, curtails early
-    13: 20.0,   # commercial/industrial mix
-    14: 16.0,   # mid-range flexibility
-    15: 25.0,   # less flexible, close to peak generator cost
-}
+elastic_bid_price = df.set_index('node')['bid'].to_dict()
 
 # Hour selected for merit order curve analysis (0-based index)
 hour = 4  # hour 5
@@ -204,7 +201,7 @@ for t in range(time_step):  # Loop over time steps (hours)
         if node in elastic_nodes:
             bid_quantities_min.append(demand_at_node * 0.20)
             bid_quantities_max.append(demand_at_node * 1.10)
-            bid_prices.append(elastic_bid_prices[node])
+            bid_prices.append(elastic_bid_price[node])
         else:
             bid_quantities_min.append(demand_at_node * 1.00)
             bid_quantities_max.append(demand_at_node * 1.00)
@@ -360,7 +357,10 @@ for t in range(time_step):  # Loop over time steps (hours)
     
     consumer_utility = sum(demand_data['bid_price'][j] * model.results.variables[f'demand of load {j}'] for j in LOADS)
     
-    producer_surplus = mcp * total_generation - total_cost
+    producer_surplus = sum(
+    lmp_by_node[total_generators['bus'].iloc[g]] * model.results.variables[f'production of generator {g}'] 
+    - total_generators['cost'].iloc[g] * model.results.variables[f'production of generator {g}']
+    for g in GENERATORS)
     
     # Calculate flexibility index 
     # Negative = curtailed (below base), Positive = increased (above base)
@@ -379,12 +379,14 @@ for t in range(time_step):  # Loop over time steps (hours)
         for g in GENERATORS:
             p = model.results.variables[f'production of generator {g}']
             cost = total_generators['cost'][g]
-            producer_profits[g] = mcp * p - cost * p
+            gen_node = total_generators['bus'].iloc[g]
+            producer_profits[g] = (lmp_by_node[gen_node] - cost) * p    #nodal market means Gen gets paid for the LMP at the node
 
         for j in LOADS:
             q = model.results.variables[f'demand of load {j}']
             bid_price = demand_data['bid_price'][j]
-            utility_by_load[j] = (bid_price-mcp) * q
+            load_node = demand_data['node'].iloc[j]
+            utility_by_load[j] = (bid_price - lmp_by_node[load_node]) * q   #same as before, costumer pays the LMP at the node
 
     # Store results
     results_by_hour.append({
@@ -403,7 +405,6 @@ for t in range(time_step):  # Loop over time steps (hours)
         'producer_surplus': producer_surplus
     }) 
 results_df = pd.DataFrame(results_by_hour)
-# lmp_df = pd.DataFrame(lmp_rows) Could be used for nodal price analysis across hours if needed
 
 
 # Print summary for the selected hour
@@ -533,7 +534,7 @@ demand_bids = []
 for node in load_nodes:
     qty = moc_total_demand * load_percentages[node]
     if node in elastic_nodes:
-        bid = elastic_bid_prices[node]
+        bid = elastic_bid_price[node]
         demand_bids.append((qty * 1.10, bid))   # elastic: max quantity
     else:
         demand_bids.append((qty, 300.0))         # inelastic: fixed quantity
@@ -584,27 +585,3 @@ ax.set_xlim(left=0)
 ax.set_ylim(bottom=0)
 plt.tight_layout()
 plt.show()
-
-# Print the summary for the whole 24 hours period
-# print("\n" + "="*50)
-# print("\n" + "24-HOUR MARKET CLEARING SUMMARY")
-# print(f"Average Market Clearing Price: €{results_df['mcp'].mean():.2f}/MWh")
-# print(f"Peak MCP: €{results_df['mcp'].max():.2f}/MWh (Hour {results_df.loc[results_df['mcp'].idxmax(), 'hour']:.0f})")
-# print(f"Minimum MCP: €{results_df['mcp'].min():.2f}/MWh (Hour {results_df.loc[results_df['mcp'].idxmin(), 'hour']:.0f})")
-
-# print(f"\nAverage Elastic Flexibility: {results_df['elastic_flexibility_pct'].mean():+.1f}%")
-# print(f"Max Elastic Increase: {results_df['elastic_flexibility_pct'].max():+.1f}% (Hour {results_df.loc[results_df['elastic_flexibility_pct'].idxmax(), 'hour']:.0f})")
-# print(f"Max Elastic Curtailment: {results_df['elastic_flexibility_pct'].min():+.1f}% (Hour {results_df.loc[results_df['elastic_flexibility_pct'].idxmin(), 'hour']:.0f})")
-
-# print(f"\nTotal Social Welfare (24h): €{results_df['social_welfare'].sum():.2f}")
-# print(f"Total Generation Cost (24h): €{results_df['total_cost'].sum():.2f}")
-# print(f"Total Producer Surplus (24h): €{results_df['producer_surplus'].sum():.2f}")
-# print(f"Total Consumer Utility (24h): €{results_df['consumer_utility'].sum():.2f}")
-
-# # Print producers profits 
-# for p in producer_profits:
-#     print(f"Producer {p+1} profit: {producer_profits[p]:.2f}") 
-# # Print utility by load 
-# for u in utility_by_load:
-#     print(f"Load {u+1} utility: {utility_by_load[u]:.2f}") 
-     
