@@ -13,6 +13,9 @@ import matplotlib.pyplot as plt
 import os
 from pathlib import Path
 os.chdir(Path(__file__).parent)
+# Create output folder for plots
+plots_dir = Path(__file__).parent / 'step 1 plots'
+plots_dir.mkdir(exist_ok=True)
 
 # mute the gurobi license print
 env = gp.Env(empty=True)
@@ -182,13 +185,13 @@ for t in range(time_step):  # Loop over time steps (hours)
         demand_at_node = total_demand * load_percentages[node]
         
         if node in elastic_nodes:
-            bid_quantities_min.append(demand_at_node * 0.20)
+            bid_quantities_min.append(0)
             bid_quantities_max.append(demand_at_node * 1.10)
             bid_prices.append(elastic_bid_prices[node])
         else:
             bid_quantities_min.append(demand_at_node * 1.00)
             bid_quantities_max.append(demand_at_node * 1.00)
-            bid_prices.append(300.0) # high bid price to ensure the inelastic load are always accepted
+            bid_prices.append(500.0) # high bid price to ensure the inelastic load are always accepted - Value of Lost Load
     
     demand_data = pd.DataFrame({
         'node': load_nodes,
@@ -365,7 +368,8 @@ print(f'Producer Surplus: €{h["producer_surplus"]:.2f}')
 
 fig, axes = plt.subplots(2, 2, figsize=(16, 10))
 
-# Graph 1: Market Clearing Price
+# Graph 1: Market Clearing Price 
+
 axes[0, 0].plot(results_df['hour'], results_df['mcp'], marker='o', linewidth=2, color='blue')
 axes[0, 0].set_xlabel('Hour', fontweight='bold')
 axes[0, 0].set_ylabel('Market Clearing Price (€/MWh)', fontweight='bold')
@@ -407,7 +411,8 @@ axes[1, 1].set_title('Elastic Demand Flexibility - 24 Hours\n(Negative=Curtailed
 axes[1, 1].grid(True, alpha=0.3, axis='y')
 axes[1, 1].set_xticks(range(1, 25))
 
-plt.tight_layout()
+plt.tight_layout() 
+plt.savefig(plots_dir / '24h_market_results.png', dpi=150, bbox_inches='tight')
 plt.show()
 
 # ============================================================================
@@ -429,13 +434,12 @@ for i in range(len(moc_generators_sorted)):
 # Demand curve
 # Build list of (quantity, bid_price) for each load at the selected hour
 demand_bids = []
-for node in load_nodes:
-    qty = moc_total_demand * load_percentages[node]
+for j, node in enumerate(load_nodes):
+    qty_accepted = model_selected.results.variables[f'demand of load {j}']
     if node in elastic_nodes:
-        bid = elastic_bid_prices[node]
-        demand_bids.append((qty * 1.10, bid))   # elastic: max quantity
+        demand_bids.append((qty_accepted, elastic_bid_prices[node]))
     else:
-        demand_bids.append((qty, 300.0))         # inelastic: fixed quantity
+        demand_bids.append((qty_accepted, 500))
 
 # Sort by bid price descending (highest willingness to pay first)
 demand_bids.sort(key=lambda x: x[1], reverse=True)
@@ -481,5 +485,6 @@ ax.legend(fontsize=11, loc='upper right')
 ax.grid(True, alpha=0.3)
 ax.set_xlim(left=0)
 ax.set_ylim(bottom=0)
-plt.tight_layout()
+plt.tight_layout() 
+plt.savefig(plots_dir / f'merit_order_hour_{hour + 1}.png', dpi=150, bbox_inches='tight')
 plt.show()

@@ -176,7 +176,7 @@ def build_multi_hour_input_data(
         for j, node in enumerate(load_nodes):
             demand_at_node = load_capacity[t] * load_percentages[node]
             if node in elastic_nodes:
-                min_qty = demand_at_node * 0.20
+                min_qty = 0
                 max_qty = demand_at_node * 1.10
             else:
                 min_qty = demand_at_node
