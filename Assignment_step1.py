@@ -502,3 +502,35 @@ fig.suptitle(f'Merit Order & Demand Curve - Hour {HOUR + 1}',
 
 plt.savefig(plots_dir / f'merit_order_hour_{HOUR + 1}.png', dpi=150, bbox_inches='tight')
 plt.show()
+ 
+# ── CSV EXPORTS ──────────────────────────────────────────────────────────────
+
+# 1. Hourly results (24 rows)
+results_df.to_csv(plots_dir / 'step1_hourly_results.csv', index=False)
+
+# 2. Producer profits for selected hour
+producer_rows = []
+for g in GENERATORS:
+    producer_rows.append({
+        'generator'   : generators_selected['id'].iloc[g],
+        'cost_EUR_MWh': round(generators_selected['cost'].iloc[g], 4),
+        'dispatch_MW' : round(model_selected.results.variables[f'production of generator {g}'], 4),
+        'profit_EUR'  : round(producer_profits[g], 4),
+    })
+pd.DataFrame(producer_rows).to_csv(plots_dir / 'step1_producer_profits.csv', index=False)
+
+# 3. Load utilities for selected hour
+load_rows = []
+for j in LOADS:
+    node = load_nodes[j]
+    load_rows.append({
+        'load'          : j + 1,
+        'node'          : node,
+        'type'          : 'elastic' if node in elastic_nodes else 'inelastic',
+        'bid_price'     : round(demand_data_selected['bid_price'].iloc[j], 4),
+        'served_MW'     : round(model_selected.results.variables[f'demand of load {j}'], 4),
+        'utility_EUR'   : round(utility_by_load[j], 4),
+    })
+pd.DataFrame(load_rows).to_csv(plots_dir / 'step1_load_utilities.csv', index=False)
+
+print(f"✓ CSVs saved to '{plots_dir.name}/'")
