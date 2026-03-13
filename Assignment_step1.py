@@ -497,14 +497,14 @@ ax_bottom.set_xlabel('Cumulative Capacity / Demand (MW)', fontsize=12, fontweigh
 ax_bottom.spines['top'].set_visible(False)
 ax_bottom.legend(fontsize=11, loc='upper right')
 
-# Add dashed reference lines for each elastic bid price
-for bid_price in sorted(set(elastic_bid_prices.values())):
-    ax_bottom.axhline(y=bid_price, color='red', linestyle=':', linewidth=0.8, alpha=0.5)
-    ax_bottom.annotate(
-        f'€{bid_price}/MWh',
-        xy=(demand_cumulative[-1] * 1.13, bid_price),
-        fontsize=8, color='darkred', va='center'
-    )
+# # Add dashed reference lines for each elastic bid price
+# for bid_price in sorted(set(elastic_bid_prices.values())):
+#     ax_bottom.axhline(y=bid_price, color='red', linestyle=':', linewidth=0.8, alpha=0.5)
+#     ax_bottom.annotate(
+#         f'€{bid_price}/MWh',
+#         xy=(demand_cumulative[-1] * 1.13, bid_price),
+#         fontsize=8, color='darkred', va='center'
+#     )
 
 # --- Broken axis indicators (diagonal marks at the split) ---
 d = 0.015  # size of diagonal marks
