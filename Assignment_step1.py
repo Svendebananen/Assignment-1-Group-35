@@ -121,7 +121,7 @@ conventional_generators = pd.read_csv('GeneratorsData.csv', header=None, names=[
 
 # Creating the wind capacity matrix for 6 wind generators and 24 hours
 wind_capacity= np.zeros((6, 24)) # placeholder for wind generator data, to be filled with actual data from CSV files for hourly optimization
-file_list = glob.glob(r'Ninja\*.csv')
+file_list = sorted(Path(__file__).parent.glob('Ninja/*.csv'))
 for i,csv in enumerate(file_list):
   data = pd.read_csv(csv, header = None,names = ['time','local_time','capacity_factor'], skiprows = 4)
   index = data.loc[data['time'] == date + ' 00:00'].index[0] # Find the index of the row corresponding to the specified date starting at 00:00
@@ -283,7 +283,8 @@ for t in range(time_step):  # Loop over time steps (hours)
     elastic_curtailment_from_max = (1 - elastic_served / elastic_max_possible) * 100 if elastic_max_possible > 0 else 0
     if t == 4:  # Store detailed results for the hour selected for merit order curve analysis
         model_selected = model
-        generators_selected = total_generators.copy()
+        generators_selected = total_generators.copy() 
+        demand_data_selected = demand_data.copy()
         producer_profits = {}
         utility_by_load = {}
 
@@ -343,7 +344,7 @@ for g in GENERATORS:
 # Demand
 print("\nStationary Demand:")
 for j in LOADS:
-    bid = demand_data['bid_price'][j]
+    bid = demand_data_selected['bid_price'][j]
     nu_min = model_selected.results.optimal_duals[f'demand min limit {j}']
     nu_max = model_selected.results.optimal_duals[f'demand max limit {j}']
     print(f"Load {j+1}: bid={bid:.2f}, λ={lam:.4f}, ν_min={nu_min:.4f}, ν_max={nu_max:.4f}, "
@@ -416,75 +417,110 @@ plt.savefig(plots_dir / '24h_market_results.png', dpi=150, bbox_inches='tight')
 plt.show()
 
 # ============================================================================
-# MERIT ORDER CURVE + DEMAND CURVE (chosen hour)
+# MERIT ORDER CURVE + DEMAND CURVE (chosen hour) - Split Y-axis plot
 # ============================================================================
 
-# Supply curve
+# --- Supply curve data ---
 moc_total_demand = loads['demand'][hour]
 wind_generator['capacity'] = wind_capacity[:, hour]
 moc_generators = pd.concat([conventional_generators, wind_generator], ignore_index=True)
 moc_generators_sorted = moc_generators.copy().sort_values(by=["cost"])
 
+# Build cumulative supply curve (step function)
 supply_cumulative = []
 supply_cost = []
 for i in range(len(moc_generators_sorted)):
     supply_cumulative.append(sum(moc_generators_sorted['capacity'][:i]))
     supply_cost.append(moc_generators_sorted['cost'].iloc[i])
 
-# Demand curve
-# Build list of (quantity, bid_price) for each load at the selected hour
+# --- Demand curve data ---
+# Use accepted quantities from the optimizer (not theoretical max)
 demand_bids = []
 for j, node in enumerate(load_nodes):
     qty_accepted = model_selected.results.variables[f'demand of load {j}']
     if node in elastic_nodes:
         demand_bids.append((qty_accepted, elastic_bid_prices[node]))
     else:
-        demand_bids.append((qty_accepted, 500))
+        demand_bids.append((qty_accepted, 500.0))  # VoLL for inelastic loads
 
 # Sort by bid price descending (highest willingness to pay first)
 demand_bids.sort(key=lambda x: x[1], reverse=True)
 
+# Build cumulative demand curve
 demand_cumulative = [0]
-demand_prices = []
-for qty, bid in demand_bids:
+for qty, _ in demand_bids:
     demand_cumulative.append(demand_cumulative[-1] + qty)
-    demand_prices.append(bid)
 
-# MCP from optimiser
-moc_equilibrium = results_df.loc[results_df['hour'] == hour + 1, 'mcp'].values[0]
-
-# Plot
-fig, ax = plt.subplots(figsize=(12, 7))
-
-# Supply curve
-ax.step(supply_cumulative, supply_cost, where='post', linewidth=2.5, color='steelblue', label='Supply Curve')
-ax.fill_between(supply_cumulative, supply_cost, step='post', alpha=0.2, color='steelblue')
-
-# Demand curve (step descending)
-demand_x = []
-demand_y = []
+# Build step-function coordinates for demand curve
+demand_x, demand_y = [], []
 for i, (qty, bid) in enumerate(demand_bids):
-    demand_x.append(demand_cumulative[i])
-    demand_y.append(bid)
-    demand_x.append(demand_cumulative[i + 1])
-    demand_y.append(bid)
-
-# Final point: drop to zero
+    demand_x += [demand_cumulative[i], demand_cumulative[i + 1]]
+    demand_y += [bid, bid]
 demand_x.append(demand_cumulative[-1])
 demand_y.append(0)
 
-ax.plot(demand_x, demand_y, linewidth=2.5, color='red', label='Demand Curve')
+# MCP from optimizer (dual variable of balance constraint)
+moc_equilibrium = results_df.loc[results_df['hour'] == hour + 1, 'mcp'].values[0]
 
-# MCP line
-ax.axhline(y=moc_equilibrium, color='green', linestyle='--', linewidth=2, label=f'MCP: €{moc_equilibrium:.2f}/MWh')
+# --- Plot: split Y-axis (broken axis) ---
+# Top panel: inelastic demand at VoLL (€500)
+# Bottom panel: elastic bids and MCP zone (0–45 €/MWh)
+fig, (ax_top, ax_bottom) = plt.subplots(
+    2, 1,
+    figsize=(12, 8),
+    gridspec_kw={'height_ratios': [1, 3]},  # top panel smaller
+    sharex=True
+)
+fig.subplots_adjust(hspace=0.05)
 
-ax.set_xlabel('Cumulative Capacity / Demand (MW)', fontsize=12, fontweight='bold')
-ax.set_ylabel('Price (€/MWh)', fontsize=12, fontweight='bold')
-ax.set_title(f'Merit Order & Demand Curve - Hour {hour + 1}', fontsize=14, fontweight='bold')
-ax.legend(fontsize=11, loc='upper right')
-ax.grid(True, alpha=0.3)
-ax.set_xlim(left=0)
-ax.set_ylim(bottom=0)
-plt.tight_layout() 
+# --- Top panel: VoLL zone ---
+for ax in (ax_top, ax_bottom):
+    ax.step(supply_cumulative, supply_cost, where='post',
+            linewidth=2.5, color='steelblue', label='Supply Curve')
+    ax.fill_between(supply_cumulative, supply_cost,
+                    step='post', alpha=0.2, color='steelblue')
+    ax.plot(demand_x, demand_y, linewidth=2.5, color='red', label='Demand Curve')
+    ax.axhline(y=moc_equilibrium, color='green', linestyle='--', linewidth=2,
+               label=f'MCP: €{moc_equilibrium:.2f}/MWh')
+    ax.grid(True, alpha=0.3)
+
+# Top panel shows only the VoLL region
+ax_top.set_ylim(470, 530)
+ax_top.set_yticks([500])
+ax_top.set_ylabel('VoLL (€/MWh)', fontsize=10)
+ax_top.spines['bottom'].set_visible(False)
+ax_top.tick_params(bottom=False)
+
+# Bottom panel shows the economically relevant region
+ax_bottom.set_ylim(0, max(elastic_bid_prices.values()) * 1.5)
+ax_bottom.set_xlim(0, demand_cumulative[-1] * 1.15)
+ax_bottom.set_ylabel('Price (€/MWh)', fontsize=12, fontweight='bold')
+ax_bottom.set_xlabel('Cumulative Capacity / Demand (MW)', fontsize=12, fontweight='bold')
+ax_bottom.spines['top'].set_visible(False)
+ax_bottom.legend(fontsize=11, loc='upper right')
+
+# Add dashed reference lines for each elastic bid price
+for bid_price in sorted(set(elastic_bid_prices.values())):
+    ax_bottom.axhline(y=bid_price, color='red', linestyle=':', linewidth=0.8, alpha=0.5)
+    ax_bottom.annotate(
+        f'€{bid_price}/MWh',
+        xy=(demand_cumulative[-1] * 1.13, bid_price),
+        fontsize=8, color='darkred', va='center'
+    )
+
+# --- Broken axis indicators (diagonal marks at the split) ---
+d = 0.015  # size of diagonal marks
+kwargs = dict(transform=ax_top.transAxes, color='k', clip_on=False, linewidth=1.5)
+ax_top.plot((-d, +d), (-d, +d), **kwargs)        # bottom-left of top panel
+ax_top.plot((1 - d, 1 + d), (-d, +d), **kwargs)  # bottom-right of top panel
+
+kwargs.update(transform=ax_bottom.transAxes)
+ax_bottom.plot((-d, +d), (1 - d, 1 + d), **kwargs)        # top-left of bottom panel
+ax_bottom.plot((1 - d, 1 + d), (1 - d, 1 + d), **kwargs)  # top-right of bottom panel
+
+# --- Title and save ---
+fig.suptitle(f'Merit Order & Demand Curve - Hour {hour + 1}',
+             fontsize=14, fontweight='bold', y=0.98)
+
 plt.savefig(plots_dir / f'merit_order_hour_{hour + 1}.png', dpi=150, bbox_inches='tight')
 plt.show()
