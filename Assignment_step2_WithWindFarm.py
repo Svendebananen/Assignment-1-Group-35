@@ -4,11 +4,12 @@ import gurobipy as gp
 from gurobipy import GRB
 import pandas as pd
 import matplotlib.pyplot as plt
-import glob
 import numpy as np
 import os
 from pathlib import Path
 os.chdir(Path(__file__).parent)
+plots_dir = Path(__file__).parent / 'step 2 plots'
+plots_dir.mkdir(exist_ok=True) 
 
 # mute the gurobi license print
 env = gp.Env(empty=True)
@@ -142,7 +143,7 @@ def build_multi_hour_input_data(
             if node in elastic_nodes:
                 bid_price = elastic_bid_prices[node] * peak_multiplier[t]
             else:
-                bid_price = 300.0
+                bid_price = VOLL
             objective_coeff[f'demand of load {j} at hour {t}'] = bid_price
 
     constraints_coeff = {}
@@ -239,7 +240,7 @@ conventional_generators = pd.read_csv('GeneratorsData.csv', header=None, names=[
 
 # Creating the wind capacity matrix for 6 wind generators and 24 hours
 wind_capacity = np.zeros((6, 24))
-file_list = glob.glob('Ninja/*.csv')
+file_list = sorted(Path(__file__).parent.glob('Ninja/*.csv'))
 for i, csv in enumerate(file_list):
     data = pd.read_csv(csv, header=None, names=['time', 'local_time', 'capacity_factor'], skiprows=4)
     index = data.loc[data['time'] == date + ' 00:00'].index[0]
@@ -266,22 +267,23 @@ load_percentages = dict(zip(load_distribution['node'], load_distribution['pct_of
 df = pd.read_csv('elastic_data.csv')
 df.columns = df.columns.str.strip()
 
+# Value of Lost Load (€/MWh) — bid price for inelastic loads
+VOLL = 500 
+
 # List of elastic loads: nodes 1, 7, 9, 13, 14, 15
 elastic_nodes = df['node'].tolist()
 
 # Bid prices for elastic loads (€/MWh) — differentiated, consistent with generation costs (€5.47–26.11/MWh)
-elastic_bid_prices = elastic_bid_prices = df.set_index('node')['bid'].to_dict()
+elastic_bid_prices = df.set_index('node')['bid'].to_dict()
 
 # demand bid quantities and bid prices must vary across hours (comparatively higher during peak hours)
 peak_multiplier = {t: 1.3 if t in range(7, 10) or t in range(16, 20) else 1.0 for t in range(24)}
 
 # Define ranges and indexes
-time_step = 24
+TIME_STEPS = 24
 GENERATORS = range(len(generators_combined))        # 18: 12 conventional + 6 wind
 WINDTURBINES = range(12, len(generators_combined))  # 6 wind farms
 LOADS = range(len(load_distribution))               # 17: 11 inelastic + 6 elastic
-N_GENERATORS = len(GENERATORS)
-N_LOADS = len(LOADS)
 
 # Battery parameters
 BATTERY_ENERGY_MAX = 100.0
@@ -305,7 +307,7 @@ multi_hour_data = build_multi_hour_input_data(
     elastic_nodes = elastic_nodes,
     elastic_bid_prices = elastic_bid_prices,
     peak_multiplier = peak_multiplier,
-    time_range = range(time_step),
+    time_range = range(TIME_STEPS),
     wind_capacity_by_hour = wind_capacity,
 )
 
@@ -316,7 +318,7 @@ multi_hour_model.run()
 print(f"Total Social Welfare: €{multi_hour_model.results.objective_value:.2f}") 
 
 total_operating_cost = 0
-for t in range(time_step):
+for t in range(TIME_STEPS):
     for g in GENERATORS:
         production = multi_hour_model.results.variables[f'production of generator {g} at hour {t}']
         cost = generators_combined['cost'].iloc[g]
@@ -324,27 +326,27 @@ for t in range(time_step):
 print(f'Total Operating Cost: €{total_operating_cost:.2f}') 
 
 storage_profit = 0
-for t in range(time_step):
+for t in range(TIME_STEPS):
     discharge = multi_hour_model.results.variables.get(f'battery discharge at hour {t}', 0)
     charge = multi_hour_model.results.variables.get(f'battery charge at hour {t}', 0)
     mcp = multi_hour_model.results.optimal_duals.get(f'balance constraint at hour {t}', 0)
     storage_profit += (discharge - charge) * mcp
 print(f'Total Profit of Storage Unit: €{storage_profit:.2f}') 
 
-total_generator_profit = {g: 0 for g in range(N_GENERATORS)}
-for g in range(N_GENERATORS):
-    for t in range(time_step):
+total_generator_profit = {g: 0 for g in GENERATORS}
+for g in GENERATORS:
+    for t in range(TIME_STEPS):
         mcp = multi_hour_model.results.optimal_duals.get(f'balance constraint at hour {t}', 0)
         production = multi_hour_model.results.variables.get(f'production of generator {g} at hour {t}', 0)
         total_generator_profit[g] += (mcp - generators_combined['cost'].iloc[g]) * production
 
-for g in range(N_GENERATORS):
+for g in GENERATORS:
     print(f'Profit of Generator {g+1} over 24 hours: €{total_generator_profit[g]:.2f}')
 
 print(f"\n{'Hour':<6} {'MCP':>10} {'ServedDemand':>14} {'Generation':>12} {'Wind':>10} {'Charge':>10} {'Discharge':>10} {'SOC':>10} {'Balance':>10}")
-for t in range(time_step):
+for t in range(TIME_STEPS):
     mcp = multi_hour_model.results.optimal_duals.get(f'balance constraint at hour {t}', 0)
-    served_demand = sum(multi_hour_model.results.variables.get(f'demand of load {j} at hour {t}', 0) for j in range(N_LOADS))
+    served_demand = sum(multi_hour_model.results.variables.get(f'demand of load {j} at hour {t}', 0) for j in LOADS)
     gen = sum(multi_hour_model.results.variables.get(f'production of generator {g} at hour {t}', 0) for g in GENERATORS)
     wind = sum(multi_hour_model.results.variables.get(f'production of generator {g} at hour {t}', 0) for g in WINDTURBINES)
     charge = multi_hour_model.results.variables.get(f'battery charge at hour {t}', 0)
@@ -355,7 +357,7 @@ for t in range(time_step):
 
 # Plots
 # Plot 1: Market Clearing Price
-mcp_by_hour = {t: multi_hour_model.results.optimal_duals.get(f'balance constraint at hour {t}', 0) for t in range(time_step)}
+mcp_by_hour = {t: multi_hour_model.results.optimal_duals.get(f'balance constraint at hour {t}', 0) for t in range(TIME_STEPS)}
 
 plt.figure(figsize=(12, 6))
 plt.plot(list(mcp_by_hour.keys()), list(mcp_by_hour.values()), marker='o', linewidth=2, markersize=8, color='blue')
@@ -363,9 +365,10 @@ plt.xlabel('Hour', fontsize=12)
 plt.ylabel('Market Clearing Price (€/MWh)', fontsize=12)
 plt.title('Market Clearing Price Across 24 Hours', fontsize=14, fontweight='bold')
 plt.grid(True, alpha=0.3)
-plt.xticks(range(time_step))
+plt.xticks(range(TIME_STEPS))
 plt.tight_layout()
-plt.show()
+plt.savefig(plots_dir / 'market_clearing_price', dpi=150, bbox_inches='tight')
+plt.close()
 
 # Plot 2: Generation and demand
 served_demand_plot = []
@@ -373,15 +376,15 @@ conventional_generation = []
 wind_generation = []
 battery_soc_plot = []
 
-for t in range(time_step):
+for t in range(TIME_STEPS):
     charge = multi_hour_model.results.variables.get(f'battery charge at hour {t}', 0)
     discharge = multi_hour_model.results.variables.get(f'battery discharge at hour {t}', 0)
-    served_demand_plot.append(sum(multi_hour_model.results.variables.get(f'demand of load {j} at hour {t}', 0) for j in range(N_LOADS)))
+    served_demand_plot.append(sum(multi_hour_model.results.variables.get(f'demand of load {j} at hour {t}', 0) for j in LOADS))
     conventional_generation.append(sum(multi_hour_model.results.variables.get(f'production of generator {g} at hour {t}', 0) for g in GENERATORS))
     wind_generation.append(sum(multi_hour_model.results.variables.get(f'production of generator {g} at hour {t}', 0) for g in WINDTURBINES))
     battery_soc_plot.append(multi_hour_model.results.variables.get(f'battery SOC at hour {t}', 0))
 
-hours_plot = list(range(time_step))
+hours_plot = list(range(TIME_STEPS))
 
 plt.figure(figsize=(12, 6))
 plt.plot(hours_plot, load_capacity.values, marker='s', linewidth=2, color='green', label='Base Load')
@@ -395,7 +398,8 @@ plt.grid(True, alpha=0.3)
 plt.legend()
 plt.xticks(hours_plot)
 plt.tight_layout()
-plt.show()
+plt.savefig(plots_dir / 'generation_demand_24h.png', dpi=150, bbox_inches='tight')
+plt.close()
 
 # Plot 3: Battery SOC
 plt.figure(figsize=(12, 6))
@@ -407,4 +411,5 @@ plt.grid(True, alpha=0.3)
 plt.legend()
 plt.xticks(hours_plot)
 plt.tight_layout()
-plt.show()
+plt.savefig(plots_dir / 'battery_SOC.png', dpi=150, bbox_inches='tight')
+plt.close()

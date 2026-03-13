@@ -155,11 +155,10 @@ HOUR = 8
 
 # Optimization for each hour
 # Define ranges and indexes
-N_GENERATORS = len(total_generators) # number of generators (12 conventional + 6 wind)
-N_LOADS = len(load_distribution) # number of loads (17 total: 11 inelastic + 6 elastic)
+
 TIME_STEPS = 24 # time step in hours 
 GENERATORS = range(len(total_generators)) 
-LOADS = range(N_LOADS) 
+LOADS = range(len(load_distribution)) 
 
 # Storage for results across all hours
 results_by_hour = []
