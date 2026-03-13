@@ -178,7 +178,7 @@ def build_multi_hour_input_data(
             demand_at_node = load_capacity[t] * load_percentages[node]
             if node in elastic_nodes:
                 min_qty = 0
-                max_qty = demand_at_node * 1.10
+                max_qty = demand_at_node
             else:
                 min_qty = demand_at_node
                 max_qty = demand_at_node
@@ -367,7 +367,7 @@ plt.title('Market Clearing Price Across 24 Hours', fontsize=14, fontweight='bold
 plt.grid(True, alpha=0.3)
 plt.xticks(range(TIME_STEPS))
 plt.tight_layout()
-plt.savefig(plots_dir / 'market_clearing_price', dpi=150, bbox_inches='tight')
+plt.savefig(plots_dir / 'market_clearing_price.png', dpi=150, bbox_inches='tight')
 plt.close()
 
 # Plot 2: Generation and demand
@@ -412,4 +412,68 @@ plt.legend()
 plt.xticks(hours_plot)
 plt.tight_layout()
 plt.savefig(plots_dir / 'battery_SOC.png', dpi=150, bbox_inches='tight')
-plt.close()
+plt.close() 
+
+# ── 1. HOURLY RESULTS ───────────────────────────────────────────────────────
+hourly_rows = []
+total_op_cost = 0.0
+
+for t in range(TIME_STEPS):
+    mcp      = multi_hour_model.results.optimal_duals.get(f'balance constraint at hour {t}', 0)
+    served   = sum(multi_hour_model.results.variables.get(f'demand of load {j} at hour {t}', 0) for j in LOADS)
+    gen_conv = sum(multi_hour_model.results.variables.get(f'production of generator {g} at hour {t}', 0) for g in GENERATORS)
+    gen_wind = sum(multi_hour_model.results.variables.get(f'production of generator {g} at hour {t}', 0) for g in WINDTURBINES)
+    charge   = multi_hour_model.results.variables.get(f'battery charge at hour {t}', 0)
+    discharge= multi_hour_model.results.variables.get(f'battery discharge at hour {t}', 0)
+    soc      = multi_hour_model.results.variables.get(f'battery SOC at hour {t}', 0)
+
+    # Operating cost contribution of this hour (conventional only, wind cost = 0)
+    for g in GENERATORS:
+        p   = multi_hour_model.results.variables.get(f'production of generator {g} at hour {t}', 0)
+        total_op_cost += generators_combined['cost'].iloc[g] * p
+
+    hourly_rows.append({
+        'hour'        : t + 1,
+        'MCP_EUR_MWh' : round(mcp,      4),
+        'served_MW'   : round(served,   4),
+        'conv_gen_MW' : round(gen_conv, 4),
+        'wind_MW'     : round(gen_wind, 4),
+        'batt_charge_MW'   : round(charge,    4),
+        'batt_discharge_MW': round(discharge, 4),
+        'batt_SOC_MWh'     : round(soc,       4),
+    })
+
+df_hourly = pd.DataFrame(hourly_rows)
+df_hourly.to_csv(plots_dir /'step2_hourly_results.csv', index=False)
+print("✓ step2_hourly_results.csv saved")
+
+# ── 2. PRODUCER RESULTS (totals over 24h) ──────────────────────────────────
+producer_rows = []
+for g in range(len(generators_combined)):
+    name = generators_combined['id'].iloc[g]
+    cost = generators_combined['cost'].iloc[g]
+    total_prod   = 0.0
+    total_profit = 0.0
+    for t in range(TIME_STEPS):
+        p   = multi_hour_model.results.variables.get(f'production of generator {g} at hour {t}', 0)
+        mcp = multi_hour_model.results.optimal_duals.get(f'balance constraint at hour {t}', 0)
+        total_prod   += p
+        total_profit += (mcp - cost) * p
+    producer_rows.append({
+        'generator'       : name,
+        'total_prod_MWh'  : round(total_prod,   2),
+        'total_profit_EUR': round(total_profit, 2),
+    })
+
+df_producers = pd.DataFrame(producer_rows)
+df_producers.to_csv(plots_dir / 'step2_producer_results.csv', index=False)
+print("✓ step2_producer_results.csv saved")
+
+# ── 3. SUMMARY ──────────────────────────────────────────────────────────────
+social_welfare = multi_hour_model.results.objective_value
+df_summary = pd.DataFrame([{
+    'social_welfare_EUR' : round(social_welfare, 2),
+    'operating_cost_EUR' : round(total_op_cost,  2),
+}])
+df_summary.to_csv(plots_dir / 'step2_summary.csv', index=False)
+print("✓ step2_summary.csv saved")
