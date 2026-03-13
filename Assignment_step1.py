@@ -111,34 +111,6 @@ class LP_OptimizationProblem():
                     label = f"capacity constraint {int(suffix) + 1}"
             print(f'Dual variable of {label}:', value)
 
-# USELESS?
-# def LP_builder(
-#         VARIABLES: list[str],
-#         CONSTRAINTS: list[str],
-#         objective_coeff: dict[str, float],              
-#         constraints_coeff: dict[str, dict[str,float]],  
-#         constraints_rhs: dict[str, float],              
-#         constraints_sense: dict[str, int],              
-#         objective_sense: int,                           
-#         model_name: str                                 
-# ): 
-#     # Build model
-#     model = gp.Model(name=model_name)
-
-#     # Add variables
-#     variables = {v: model.addVar(lb=0, name=f'{v}') for v in VARIABLES}
-
-#     # Objective
-#     objective = gp.quicksum(objective_coeff[v] * variables[v] for v in VARIABLES)
-#     model.setObjective(objective, objective_sense)
-
-#     # Constraints
-#     for c in CONSTRAINTS:
-#         model.addLConstr(gp.quicksum(constraints_coeff[c][v] * variables[v] for v in VARIABLES), constraints_sense[c], constraints_rhs[c], name=f'{c}')
-#     model.update()
-#     return model
-
-
 # Import data from case study
 date = '2019-08-31' # Choose data for wind turbine generation
 
@@ -173,12 +145,12 @@ elastic_nodes = [1, 7, 9, 13, 14, 15]
 
 # Bid prices for elastic loads (€/MWh) — differentiated, consistent with generation costs (€5.47–26.11/MWh)
 elastic_bid_prices = {
-    1:  12.0,   # price-sensitive industrial load
-    7:  22.0,   # commercial load
-    9:  10.0,   # very price-sensitive, curtails early
-    13: 20.0,   # commercial/industrial mix
-    14: 16.0,   # mid-range flexibility
-    15: 25.0,   # less flexible, close to peak generator cost
+    1:  8.0,   # price-sensitive industrial load
+    7:  30.0,   # commercial load
+    9:  9.0,   # very price-sensitive, curtails early
+    13: 28.0,   # commercial/industrial mix
+    14: 25.0,   # mid-range flexibility
+    15: 31.0,   # less flexible, close to peak generator cost
 }
 
 # Hour selected for merit order curve analysis (0-based index)
@@ -365,6 +337,15 @@ for g in GENERATORS:
     cost = generators_selected['cost'].iloc[g]  # ← corretto
     print(f"Gen {g+1}: cost={cost:.2f}, μ={mu:.4f}, λ - C - μ = {lam - cost - mu:.6f}")
 
+# Demand
+print("\nStationary Demand:")
+for j in LOADS:
+    bid = demand_data['bid_price'][j]
+    nu_min = model_selected.results.optimal_duals[f'demand min limit {j}']
+    nu_max = model_selected.results.optimal_duals[f'demand max limit {j}']
+    print(f"Load {j+1}: bid={bid:.2f}, λ={lam:.4f}, ν_min={nu_min:.4f}, ν_max={nu_max:.4f}, "
+          f"bid - λ + ν_max - ν_min = {bid - lam + nu_max - nu_min:.6f}")
+
 # Complementary slackness
 for g in GENERATORS:
     p = model_selected.results.variables[f'production of generator {g}']
@@ -502,27 +483,3 @@ ax.set_xlim(left=0)
 ax.set_ylim(bottom=0)
 plt.tight_layout()
 plt.show()
-
-# Print the summary for the whole 24 hours period
-# print("\n" + "="*50)
-# print("\n" + "24-HOUR MARKET CLEARING SUMMARY")
-# print(f"Average Market Clearing Price: €{results_df['mcp'].mean():.2f}/MWh")
-# print(f"Peak MCP: €{results_df['mcp'].max():.2f}/MWh (Hour {results_df.loc[results_df['mcp'].idxmax(), 'hour']:.0f})")
-# print(f"Minimum MCP: €{results_df['mcp'].min():.2f}/MWh (Hour {results_df.loc[results_df['mcp'].idxmin(), 'hour']:.0f})")
-
-# print(f"\nAverage Elastic Flexibility: {results_df['elastic_flexibility_pct'].mean():+.1f}%")
-# print(f"Max Elastic Increase: {results_df['elastic_flexibility_pct'].max():+.1f}% (Hour {results_df.loc[results_df['elastic_flexibility_pct'].idxmax(), 'hour']:.0f})")
-# print(f"Max Elastic Curtailment: {results_df['elastic_flexibility_pct'].min():+.1f}% (Hour {results_df.loc[results_df['elastic_flexibility_pct'].idxmin(), 'hour']:.0f})")
-
-# print(f"\nTotal Social Welfare (24h): €{results_df['social_welfare'].sum():.2f}")
-# print(f"Total Generation Cost (24h): €{results_df['total_cost'].sum():.2f}")
-# print(f"Total Producer Surplus (24h): €{results_df['producer_surplus'].sum():.2f}")
-# print(f"Total Consumer Utility (24h): €{results_df['consumer_utility'].sum():.2f}")
-
-# # Print producers profits 
-# for p in producer_profits:
-#     print(f"Producer {p+1} profit: {producer_profits[p]:.2f}") 
-# # Print utility by load 
-# for u in utility_by_load:
-#     print(f"Load {u+1} utility: {utility_by_load[u]:.2f}") 
-     

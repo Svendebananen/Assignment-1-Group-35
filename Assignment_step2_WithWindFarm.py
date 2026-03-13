@@ -266,7 +266,7 @@ load_percentages = dict(zip(load_distribution['node'], load_distribution['pct_of
 elastic_nodes = [1, 7, 9, 13, 14, 15] 
 
 # Bid prices for elastic loads
-elastic_bid_prices = {1: 12.0, 7: 22.0, 9: 10.0, 13: 20.0, 14: 16.0, 15: 25.0} 
+elastic_bid_prices = {1: 8.0, 7: 30.0, 9: 9.0, 13: 28.0, 14: 25.0, 15: 31.0} 
 
 # demand bid quantities and bid prices must vary across hours (comparatively higher during peak hours)
 peak_multiplier = {t: 1.3 if t in range(7, 10) or t in range(16, 20) else 1.0 for t in range(24)}
