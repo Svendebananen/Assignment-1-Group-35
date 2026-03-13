@@ -401,15 +401,36 @@ plt.tight_layout()
 plt.savefig(plots_dir / 'generation_demand_24h.png', dpi=150, bbox_inches='tight')
 plt.close()
 
-# Plot 3: Battery SOC
-plt.figure(figsize=(12, 6))
-plt.plot(hours_plot, battery_soc_plot, marker='o', linewidth=2, color='purple', label='Battery SOC')
-plt.xlabel('Hour', fontsize=12)
-plt.ylabel('State of Charge (MWh)', fontsize=12)
-plt.title('Battery State of Charge Across 24 Hours', fontsize=14, fontweight='bold')
-plt.grid(True, alpha=0.3)
-plt.legend()
-plt.xticks(hours_plot)
+# Plot 3: Battery SOC + Charge/Discharge
+charge_plot    = [multi_hour_model.results.variables.get(f'battery charge at hour {t}', 0)    for t in range(TIME_STEPS)]
+discharge_plot = [multi_hour_model.results.variables.get(f'battery discharge at hour {t}', 0) for t in range(TIME_STEPS)]
+
+fig, ax1 = plt.subplots(figsize=(12, 6))
+
+# Bar chart for charge/discharge on primary y-axis
+width = 0.4
+ax1.bar([h - width/2 for h in hours_plot], discharge_plot,  width=width, color='tomato',    alpha=0.8, label='Discharge (MW)')
+ax1.bar([h + width/2 for h in hours_plot], charge_plot,     width=width, color='steelblue', alpha=0.8, label='Charge (MW)')
+ax1.set_xlabel('Hour', fontsize=12)
+ax1.set_ylabel('Power (MW)', fontsize=12)
+ax1.set_ylim(0, BATTERY_POWER_MAX_CHARGE * 1.5)
+ax1.set_xticks(hours_plot)
+ax1.grid(True, alpha=0.3, axis='y')
+
+# SOC line on secondary y-axis
+ax2 = ax1.twinx()
+ax2.plot(hours_plot, battery_soc_plot, marker='o', linewidth=2.5, color='purple', label='SOC (MWh)', zorder=5)
+ax2.axhline(y=BATTERY_ENERGY_MAX, color='purple', linestyle='--', linewidth=1, alpha=0.5, label=f'SOC max ({BATTERY_ENERGY_MAX} MWh)')
+ax2.set_ylabel('State of Charge (MWh)', fontsize=12, color='purple')
+ax2.tick_params(axis='y', labelcolor='purple')
+ax2.set_ylim(0, BATTERY_ENERGY_MAX * 1.2)
+
+# Combined legend
+lines1, labels1 = ax1.get_legend_handles_labels()
+lines2, labels2 = ax2.get_legend_handles_labels()
+ax1.legend(lines1 + lines2, labels1 + labels2, loc='lower right', fontsize=10)
+
+plt.title('Battery State of Charge, Charge and Discharge — 24 Hours', fontsize=14, fontweight='bold')
 plt.tight_layout()
 plt.savefig(plots_dir / 'battery_SOC.png', dpi=150, bbox_inches='tight')
 plt.close() 
