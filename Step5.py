@@ -1,4 +1,3 @@
-
 # step 5: Balancing Market, no storage, no transmission, 1 hour
 # imports
 import gurobipy as gp
@@ -6,11 +5,16 @@ from gurobipy import GRB
 import pandas as pd
 import glob
 import numpy as np
-import matplotlib.pyplot as plt
-# importing os library to consider the same folder of this file for the csv reading
+import matplotlib.pyplot as plt 
+
+# import os library to consider the same folder of this file for the csv reading
 import os
 from pathlib import Path
-os.chdir(Path(__file__).parent)
+os.chdir(Path(__file__).parent) 
+
+# create output folder for plots
+plots_dir = Path(__file__).parent / 'step 6 plots'
+plots_dir.mkdir(exist_ok=True) 
 
 # mute the gurobi license print
 env = gp.Env(empty=True)

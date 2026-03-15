@@ -1,35 +1,40 @@
-# step 1: single hour optimization with 6/17 elastic loads
+# step 6: Reserve Market + Day-Ahead Market (sequential clearing, European style)
+# Builds upon Step 1: copper-plate, no storage, single hour
+
 # imports
 import gurobipy as gp
 from gurobipy import GRB
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-# importing os library to consider the same folder of this file for the csv reading
 import os
 from pathlib import Path
+
+# import os library to consider the same folder of this file for the csv reading
 os.chdir(Path(__file__).parent)
-# Create output folder for plots
-plots_dir = Path(__file__).parent / 'step 1 plots'
+
+# create output folder for plots
+plots_dir = Path(__file__).parent / 'step6 plots'
 plots_dir.mkdir(exist_ok=True)
 
 # mute the gurobi license print
 env = gp.Env(empty=True)
 env.setParam('OutputFlag', 0)
-env.start() 
+env.start()
+
 
 class Expando(object):
     pass
 
-#define classes for input data and optimization problem
+# define classes for input data and optimization problem
 class LP_InputData:
 
     def __init__(
-        self, 
+        self,
         VARIABLES: list[str],
         CONSTRAINTS: list[str],
         objective_coeff: dict[str, float],              # Coefficients in objective function
-        constraints_coeff: dict[str, dict[str,float]],  # Linear coefficients of constraints
+        constraints_coeff: dict[str, dict[str, float]], # Linear coefficients of constraints
         constraints_rhs: dict[str, float],              # Right hand side coefficients of constraints
         constraints_sense: dict[str, int],              # Direction of constraints
         objective_sense: int,                           # Direction of optimization
@@ -44,15 +49,16 @@ class LP_InputData:
         self.objective_sense = objective_sense
         self.model_name = model_name
 
+
 class LP_OptimizationProblem():
     def __init__(self, input_data: LP_InputData): # initialize class
         self.data = input_data # define data attributes
         self.results = Expando() # define results attributes
         self._build_model() # build gurobi model
-    
+
     def _build_variables(self):
         self.variables = {v: self.model.addVar(lb=0, name=f'{v}') for v in self.data.VARIABLES}
-    
+
     def _build_constraints(self):
         self.constraints = {c:
                 self.model.addLConstr(
@@ -67,18 +73,18 @@ class LP_OptimizationProblem():
         objective = gp.quicksum(self.data.objective_coeff[v] * self.variables[v] for v in self.data.VARIABLES)
         self.model.setObjective(objective, self.data.objective_sense)
 
-    def _build_model(self): 
+    def _build_model(self):
         self.model = gp.Model(name=self.data.model_name, env=env)
         self.model.setParam('OutputFlag', 0)  # suppress Gurobi output
         self._build_variables()
         self._build_objective_function()
         self._build_constraints()
         self.model.update()
-    
+
     def _save_results(self):
         self.results.objective_value = self.model.ObjVal
-        self.results.variables = {v.VarName:v.x for v in self.model.getVars()}
-        self.results.optimal_duals = {f'{c.ConstrName}':c.Pi for c in self.model.getConstrs()}
+        self.results.variables = {v.VarName: v.x for v in self.model.getVars()}
+        self.results.optimal_duals = {f'{c.ConstrName}': c.Pi for c in self.model.getConstrs()}
 
     def run(self):
         self.model.optimize()
@@ -86,29 +92,7 @@ class LP_OptimizationProblem():
             self._save_results()
         else:
             print(f"optimization of {self.model.ModelName} was not successful")
-    
-    def display_results(self):
-        print()
-        print("-------------------   RESULTS  -------------------")
-        print("Social Welfare:", self.results.objective_value)
-        for key, value in self.results.variables.items():
-            label = key
-            if key.startswith("production of generator "):
-                suffix = key.split(" ")[-1]
-                if suffix.isdigit():
-                    label = f"production of generator {int(suffix) + 1}"
-            elif key.startswith("demand of load "):
-                suffix = key.split(" ")[-1]
-                if suffix.isdigit():
-                    label = f"demand of load {int(suffix) + 1}"
-            print(f'Optimal value of {label}:', value)
-        for key, value in self.results.optimal_duals.items():
-            label = key
-            if key.startswith("capacity constraint "):
-                suffix = key.split(" ")[-1]
-                if suffix.isdigit():
-                    label = f"capacity constraint {int(suffix) + 1}"
-            print(f'Dual variable of {label}:', value)
+
 
 # Import data from case study
 date = '2019-08-31' # Choose data for wind turbine generation
@@ -116,425 +100,405 @@ date = '2019-08-31' # Choose data for wind turbine generation
 conventional_generators = pd.read_csv('GeneratorsData.csv', header=None, names=['id','bus','capacity','cost']) # conventional generators data
 
 # Creating the wind capacity matrix for 6 wind generators and 24 hours
-wind_capacity= np.zeros((6, 24)) # placeholder for wind generator data, to be filled with actual data from CSV files for hourly optimization
+wind_capacity = np.zeros((6, 24)) # placeholder for wind generator data, to be filled with actual data from CSV files for hourly optimization
 file_list = sorted(Path(__file__).parent.glob('Ninja/*.csv'))
-for i,csv in enumerate(file_list):
-  data = pd.read_csv(csv, header = None,names = ['time','local_time','capacity_factor'], skiprows = 4)
-  index = data.loc[data['time'] == date + ' 00:00'].index[0] # Find the index of the row corresponding to the specified date starting at 00:00
-  wind_capacity[i,:] = data['capacity_factor'][index:index+24].values*200 
+for i, csv in enumerate(file_list):
+    data = pd.read_csv(csv, header=None, names=['time','local_time','capacity_factor'], skiprows=4)
+    index = data.loc[data['time'] == date + ' 00:00'].index[0] # Find the index of the row corresponding to the specified date starting at 00:00
+    wind_capacity[i, :] = data['capacity_factor'][index:index+24].values * 200
 
 wind_generator = pd.DataFrame({ # wind generators data, with capacity to be updated for each hour based on CSV files
         'id': [f'wind_{i}' for i in range(wind_capacity.shape[0])],
-        'bus': pd.read_csv('wind_farms.csv',usecols=['node'])['node'].values,
-        'capacity': 0.0,# placeholder, will be updated for each hour
+        'bus': pd.read_csv('wind_farms.csv', usecols=['node'])['node'].values,
+        'capacity': 0.0, # placeholder, will be updated for each hour
         'cost': [0.0 for i in range(wind_capacity.shape[0])]
-    }) 
+    })
 
 # Creating a single DataFrame with all generators (conventional + wind)
-total_generators =  pd.concat([conventional_generators, wind_generator], ignore_index = True)
+total_generators = pd.concat([conventional_generators, wind_generator], ignore_index=True)
 
 # Load data upload
-loads = pd.read_csv('LoadData.csv', header = None, usecols = [1], names = ['demand'])  # load data (hourly system demand)
+loads             = pd.read_csv('LoadData.csv', header=None, usecols=[1], names=['demand'])  # load data (hourly system demand)
 load_distribution = pd.read_csv('load_distribution_1.csv')  # nodal load shares
-load_nodes = load_distribution['node'].tolist()  # list of all load nodes
-load_percentages = dict(zip(load_distribution['node'], load_distribution['pct_of_system_load'] / 100))  # fraction of total demand per node
+load_nodes        = load_distribution['node'].tolist()  # list of all load nodes
+load_percentages  = dict(zip(load_distribution['node'], load_distribution['pct_of_system_load'] / 100))  # fraction of total demand per node
 
-#define the path and clear eventual spaces in the csv
+# define the path and clear eventual spaces in the csv
 df = pd.read_csv('elastic_data.csv')
 df.columns = df.columns.str.strip()
 
 # List of elastic loads: nodes 1, 7, 9, 13, 14, 15
 elastic_nodes = df['node'].tolist()
 
-# List of generator ids that can provide balancing services (excluding the failed generator 10 and the wind generators with uncertain production) 
-balancing_generators = [1,4,5,6,8,9] 
-
 # Bid prices for elastic loads (€/MWh) — differentiated, consistent with generation costs (€5.47–26.11/MWh)
-elastic_bid_prices = elastic_bid_prices = df.set_index('node')['bid'].to_dict()
-VOLL = 500  
+elastic_bid_prices = df.set_index('node')['bid'].to_dict()
+VOLL = 500  # Value of Lost Load (€/MWh), consistent across all steps
 
-# Hour selected for merit order curve analysis (0-based index)
-HOUR = 8  
+# Hour selected for reserve + DA market clearing (0-based index)
+HOUR = 9
 
-
+# BSP generator list (eligible conventional units)
+bsp_ids = pd.read_csv('bsp_generators.csv')['generator_id'].tolist()
 
 # Define ranges and indexes
+GENERATORS = range(len(total_generators))
+LOADS      = range(len(load_distribution))
 
-TIME_STEPS = 24 # time step in hours 
-GENERATORS = range(len(total_generators)) 
-LOADS = range(len(load_distribution)) 
+# Update wind capacities and rebuild full generator DataFrame for selected hour
+wind_generator['capacity'] = wind_capacity[:, HOUR]
+total_generators = pd.concat([conventional_generators, wind_generator], ignore_index=True)
 
-# Storage for results across all hours
-results_by_hour = []
-for t in range(TIME_STEPS):  # Loop over time steps (hours)
-    wind_generator['capacity'] = wind_capacity[:, t] # Update wind generator capacities for the current hour based on CSV data
-    total_generators =  pd.concat([conventional_generators, wind_generator], ignore_index=True) # Update total generators DataFrame with the new wind generator capacities for the current hour
-    
-    total_demand = loads['demand'][t] # update total demand for the current hour
-    #print(total_demand)
-    
-    # Create demand data for each of the 17 loads
-    bid_quantities_min = []
-    bid_quantities_max = []
-    bid_prices = []
-    
-    for node in load_nodes:
-        demand_at_node = total_demand * load_percentages[node]
-        
-        if node in elastic_nodes:
-            bid_quantities_min.append(0)
-            bid_quantities_max.append(demand_at_node)
-            bid_prices.append(elastic_bid_prices[node])
-        else:
-            bid_quantities_min.append(demand_at_node)
-            bid_quantities_max.append(demand_at_node)
-            bid_prices.append(VOLL) # high bid price to ensure the inelastic load are always accepted - Value of Lost Load
-    
-    demand_data = pd.DataFrame({
-        'node': load_nodes,
-        'bid_quantity_min': bid_quantities_min,
-        'bid_quantity_max': bid_quantities_max,
-        'bid_price': bid_prices
+total_demand = loads['demand'][HOUR] # total demand for the selected hour
+
+# Index positions of BSP generators within total_generators (needed for DA constraint building)
+bsp_mask    = total_generators['id'].isin(bsp_ids)
+bsp_indices = total_generators.index[bsp_mask].tolist()
+
+# BSP sub-DataFrame (indexed by BSP = range(6))
+bsp_data = total_generators[bsp_mask].copy().reset_index(drop=True)
+
+# Reserve bid prices (€/MW of capacity held available, NOT €/MWh of energy delivered)
+# Upward reserve:   10% of marginal cost (opportunity cost of keeping headroom)
+# Downward reserve:  5% of marginal cost (lower opportunity cost — unit stays online)
+bsp_data['reserve_up_price']   = 0.10 * bsp_data['cost']  # €/MW
+bsp_data['reserve_down_price'] = 0.05 * bsp_data['cost']  # €/MW
+
+BSP = range(len(bsp_data))
+
+# Reserve requirements
+# Upward:   15% of total demand
+# Downward: 10% of total demand
+upward_reserve_req   = 0.15 * total_demand
+downward_reserve_req = 0.10 * total_demand
+
+# Demand bid data (identical to Step 1)
+bid_quantities_min, bid_quantities_max, bid_prices = [], [], []
+for node in load_nodes:
+    demand_at_node = total_demand * load_percentages[node]
+    if node in elastic_nodes:
+        bid_quantities_min.append(0)
+        bid_quantities_max.append(demand_at_node)
+        bid_prices.append(elastic_bid_prices[node])
+    else:
+        bid_quantities_min.append(demand_at_node)
+        bid_quantities_max.append(demand_at_node)
+        bid_prices.append(VOLL) # high bid price to ensure the inelastic load are always accepted (Value of Lost Load)
+
+demand_data = pd.DataFrame({
+    'node':             load_nodes,
+    'bid_quantity_min': bid_quantities_min,
+    'bid_quantity_max': bid_quantities_max,
+    'bid_price':        bid_prices
+})
+
+
+# STAGE 1 — RESERVE MARKET CLEARING
+
+print('-------------------')
+print(f'Reserve Market Clearing — Hour {HOUR + 1}')
+print('-------------------')
+
+input_data = {
+    'model_reserve': LP_InputData(
+        VARIABLES = [f'reserve up {g}'   for g in BSP] +
+                    [f'reserve down {g}' for g in BSP],
+
+        CONSTRAINTS = ['upward reserve requirement',
+                       'downward reserve requirement'] +
+                      [f'reserve up capacity {g}'    for g in BSP] +
+                      [f'reserve down capacity {g}'  for g in BSP] +
+                      [f'reserve joint capacity {g}' for g in BSP],
+
+        # Objective: minimize total reserve procurement cost (€/MW × MW committed = €).
+        objective_coeff = {
+            **{f'reserve up {g}':   bsp_data['reserve_up_price'][g]   for g in BSP},
+            **{f'reserve down {g}': bsp_data['reserve_down_price'][g] for g in BSP},
+        },
+
+        constraints_coeff = {
+            # System-level reserve requirements
+            'upward reserve requirement':   {f'reserve up {g}':   1 for g in BSP},
+            'downward reserve requirement': {f'reserve down {g}': 1 for g in BSP},
+            # Individual BSP capacity limits (up and down separately)
+            **{f'reserve up capacity {g}':   {f'reserve up {k}':   int(k == g) for k in BSP} for g in BSP},
+            **{f'reserve down capacity {g}': {f'reserve down {k}': int(k == g) for k in BSP} for g in BSP},
+            # Joint capacity: r_up_g + r_down_g <= P_max_g
+            # A generator cannot commit more total reserve than its nameplate capacity
+            **{f'reserve joint capacity {g}': {
+                f'reserve up {g}':   1,
+                f'reserve down {g}': 1
+            } for g in BSP},
+        },
+
+        constraints_rhs = {
+            'upward reserve requirement':   upward_reserve_req,
+            'downward reserve requirement': downward_reserve_req,
+            **{f'reserve up capacity {g}':    bsp_data['capacity'][g] for g in BSP},
+            **{f'reserve down capacity {g}':  bsp_data['capacity'][g] for g in BSP},
+            **{f'reserve joint capacity {g}': bsp_data['capacity'][g] for g in BSP},
+        },
+
+        constraints_sense = {
+            'upward reserve requirement':   GRB.GREATER_EQUAL,
+            'downward reserve requirement': GRB.GREATER_EQUAL,
+            **{f'reserve up capacity {g}':    GRB.LESS_EQUAL for g in BSP},
+            **{f'reserve down capacity {g}':  GRB.LESS_EQUAL for g in BSP},
+            **{f'reserve joint capacity {g}': GRB.LESS_EQUAL for g in BSP},
+        },
+
+        objective_sense = GRB.MINIMIZE,
+        model_name      = "Reserve Market Clearing"
+    )
+}
+
+model_reserve = LP_OptimizationProblem(input_data['model_reserve'])
+model_reserve.run()
+
+# Reserve prices = dual variables of system-level requirement constraints
+reserve_price_up   = model_reserve.results.optimal_duals['upward reserve requirement']
+reserve_price_down = model_reserve.results.optimal_duals['downward reserve requirement']
+
+# Cleared reserve quantities — fixed parameters for DA market
+bsp_data['r_up_cleared']   = [model_reserve.results.variables[f'reserve up {g}']   for g in BSP]
+bsp_data['r_down_cleared'] = [model_reserve.results.variables[f'reserve down {g}'] for g in BSP]
+
+# Lookup dicts by generator id (used in DA constraint building)
+bsp_r_up   = dict(zip(bsp_data['id'], bsp_data['r_up_cleared']))
+bsp_r_down = dict(zip(bsp_data['id'], bsp_data['r_down_cleared']))
+
+print(f'Reserve price (upward):   {reserve_price_up:.4f} €/MW')
+print(f'Reserve price (downward): {reserve_price_down:.4f} €/MW')
+print(f'Total upward reserve cleared:   {bsp_data["r_up_cleared"].sum():.2f} MW (required: {upward_reserve_req:.2f} MW)')
+print(f'Total downward reserve cleared: {bsp_data["r_down_cleared"].sum():.2f} MW (required: {downward_reserve_req:.2f} MW)')
+print('-------------------')
+
+
+# ============================================================================
+# STAGE 2 — DAY-AHEAD MARKET CLEARING (with reserve constraints)
+# ============================================================================
+# Identical to Step 1 except for BSP generators:
+#   - Upper bound reduced: p_g <= P_max_g - r_up*_g  (reserved headroom unavailable for DA)
+#   - Lower bound enforced: p_g >= r_down*_g           (must stay online to cover downward reserve)
+# Non-BSP generators: unchanged (p_g <= P_max_g as in Step 1)
+
+print(f'Day-Ahead Market Clearing — Hour {HOUR + 1} (post-reserve)')
+print('-------------------')
+
+def da_capacity_ub(g):
+    """Effective DA upper bound for generator g after reserve commitment."""
+    r_up = bsp_r_up.get(total_generators['id'][g], 0.0)
+    return total_generators['capacity'][g] - r_up
+
+def da_capacity_lb(g):
+    """Effective DA lower bound for generator g (= r_down* for BSPs, 0 otherwise)."""
+    return bsp_r_down.get(total_generators['id'][g], 0.0)
+
+input_data = {
+    'model_da': LP_InputData(
+        VARIABLES = [f'production of generator {g}' for g in GENERATORS] +
+                    [f'demand of load {j}'           for j in LOADS],
+
+        CONSTRAINTS = ['balance constraint'] +
+                      [f'capacity constraint {g}'        for g in GENERATORS] +
+                      [f'reserve commitment min {g}'      for g in bsp_indices] +
+                      [f'demand min limit {j}'            for j in LOADS] +
+                      [f'demand max limit {j}'            for j in LOADS],
+
+        objective_coeff = {
+            # Demand utility (positive)
+            **{f'demand of load {j}':            demand_data['bid_price'][j]   for j in LOADS},
+            # Generation cost (negative)
+            **{f'production of generator {g}':  -total_generators['cost'][g]  for g in GENERATORS},
+        },
+
+        constraints_coeff = {
+            # Balance constraint: total generation must equal total demand
+            'balance constraint': {
+                **{f'demand of load {j}':           1  for j in LOADS},
+                **{f'production of generator {g}': -1  for g in GENERATORS},
+            },
+            # Generator capacity (upper bound, reduced for BSPs)
+            **{f'capacity constraint {g}':
+                   {f'production of generator {k}': int(k == g) for k in GENERATORS}
+               for g in GENERATORS},
+            # Generator lower bound for BSPs: p_g >= r_down*
+            **{f'reserve commitment min {g}':
+                   {f'production of generator {k}': int(k == g) for k in GENERATORS}
+               for g in bsp_indices},
+            # Demand minimum limits
+            **{f'demand min limit {j}': {f'demand of load {j}': 1} for j in LOADS},
+            # Demand maximum limits
+            **{f'demand max limit {j}': {f'demand of load {j}': 1} for j in LOADS},
+        },
+
+        constraints_rhs = {
+            'balance constraint': 0,
+            # Upper bound: P_max - r_up* for BSPs, P_max for non-BSPs
+            **{f'capacity constraint {g}':    da_capacity_ub(g) for g in GENERATORS},
+            # Lower bound: r_down* for BSP generators only
+            **{f'reserve commitment min {g}': da_capacity_lb(g) for g in bsp_indices},
+            **{f'demand min limit {j}': demand_data['bid_quantity_min'][j] for j in LOADS},
+            **{f'demand max limit {j}': demand_data['bid_quantity_max'][j] for j in LOADS},
+        },
+
+        constraints_sense = {
+            'balance constraint':                           GRB.EQUAL,
+            **{f'capacity constraint {g}':    GRB.LESS_EQUAL    for g in GENERATORS},
+            **{f'reserve commitment min {g}': GRB.GREATER_EQUAL for g in bsp_indices},
+            **{f'demand min limit {j}':       GRB.GREATER_EQUAL for j in LOADS},
+            **{f'demand max limit {j}':       GRB.LESS_EQUAL    for j in LOADS},
+        },
+
+        objective_sense = GRB.MAXIMIZE, # maximize social welfare
+        model_name      = "Day-Ahead Market Clearing (with Reserve)"
+    )
+}
+
+model_da = LP_OptimizationProblem(input_data['model_da'])
+model_da.run()
+
+mcp_with_reserve = model_da.results.optimal_duals['balance constraint']
+print(f'Day-Ahead MCP (with reserve):    {mcp_with_reserve:.4f} €/MWh')
+
+# STEP 1 REFERENCE — DA CLEARING WITHOUT RESERVE (for comparison)
+# Used to answer: "how does the reserve market change prices in the DA market?"
+
+input_data = {
+    'model_da_ref': LP_InputData(
+        VARIABLES = [f'production of generator {g}' for g in GENERATORS] +
+                    [f'demand of load {j}'           for j in LOADS],
+
+        CONSTRAINTS = ['balance constraint'] +
+                      [f'capacity constraint {g}' for g in GENERATORS] +
+                      [f'demand min limit {j}'    for j in LOADS] +
+                      [f'demand max limit {j}'    for j in LOADS],
+
+        objective_coeff = {
+            # Demand utility (positive)
+            **{f'demand of load {j}':           demand_data['bid_price'][j]   for j in LOADS},
+            # Generation cost (negative)
+            **{f'production of generator {g}': -total_generators['cost'][g]   for g in GENERATORS},
+        },
+
+        constraints_coeff = {
+            # Balance constraint: total generation must equal total demand
+            'balance constraint': {
+                **{f'demand of load {j}':           1  for j in LOADS},
+                **{f'production of generator {g}': -1  for g in GENERATORS},
+            },
+            # Generator capacity
+            **{f'capacity constraint {g}':
+                   {f'production of generator {k}': int(k == g) for k in GENERATORS}
+               for g in GENERATORS},
+            # Demand minimum limits
+            **{f'demand min limit {j}': {f'demand of load {j}': 1} for j in LOADS},
+            # Demand maximum limits
+            **{f'demand max limit {j}': {f'demand of load {j}': 1} for j in LOADS},
+        },
+
+        constraints_rhs = {
+            'balance constraint': 0,
+            **{f'capacity constraint {g}': total_generators['capacity'][g]    for g in GENERATORS},
+            **{f'demand min limit {j}':    demand_data['bid_quantity_min'][j] for j in LOADS},
+            **{f'demand max limit {j}':    demand_data['bid_quantity_max'][j] for j in LOADS},
+        },
+
+        constraints_sense = {
+            'balance constraint':                  GRB.EQUAL,
+            **{f'capacity constraint {g}': GRB.LESS_EQUAL    for g in GENERATORS},
+            **{f'demand min limit {j}':    GRB.GREATER_EQUAL for j in LOADS},
+            **{f'demand max limit {j}':    GRB.LESS_EQUAL    for j in LOADS},
+        },
+
+        objective_sense = GRB.MAXIMIZE, # maximize social welfare
+        model_name      = "Day-Ahead Market Clearing (no reserve, Step 1 reference)"
+    )
+}
+
+model_da_ref = LP_OptimizationProblem(input_data['model_da_ref'])
+model_da_ref.run()
+
+mcp_no_reserve = model_da_ref.results.optimal_duals['balance constraint']
+print(f'Day-Ahead MCP (no reserve, ref): {mcp_no_reserve:.4f} €/MWh')
+print(f'MCP change due to reserve:       {mcp_with_reserve - mcp_no_reserve:+.4f} €/MWh')
+print('-------------------')
+
+# Results
+results_rows = []
+for g in GENERATORS:
+    gen_id  = total_generators['id'][g]
+    is_bsp  = gen_id in bsp_ids
+    p_ref   = model_da_ref.results.variables[f'production of generator {g}']
+    p_rsv   = model_da.results.variables[f'production of generator {g}']
+    r_up    = bsp_r_up.get(gen_id, 0.0)
+    r_down  = bsp_r_down.get(gen_id, 0.0)
+
+    profit_ref  = mcp_no_reserve   * p_ref - total_generators['cost'][g] * p_ref
+    profit_rsv  = mcp_with_reserve * p_rsv - total_generators['cost'][g] * p_rsv
+    reserve_rev = reserve_price_up * r_up + reserve_price_down * r_down
+
+    results_rows.append({
+        'id':                gen_id,
+        'is_bsp':            is_bsp,
+        'capacity_MW':       total_generators['capacity'][g],
+        'r_up_MW':           r_up,
+        'r_down_MW':         r_down,
+        'dispatch_no_rsv':   round(p_ref,  4),
+        'dispatch_with_rsv': round(p_rsv,  4),
+        'profit_no_rsv':     round(profit_ref,  4),
+        'profit_with_rsv':   round(profit_rsv + reserve_rev, 4),
+        'reserve_revenue':   round(reserve_rev, 4),
     })
-    
-    
-    input_data = {
-        'model0': LP_InputData(
-            VARIABLES = [f'production of generator {g}' for g in GENERATORS] + \
-                        [f'demand of load {j}' for j in LOADS],
 
-            CONSTRAINTS = ['balance constraint'] + \
-                          [f'capacity constraint {g}' for g in GENERATORS] + \
-                          [f'demand min limit {j}' for j in LOADS] + \
-                          [f'demand max limit {j}' for j in LOADS],
-            
-            objective_coeff = {
-                # Demand utility (positive)
-                **{f'demand of load {j}': demand_data['bid_price'][j] for j in LOADS},
-                # Generation cost (negative)
-                **{f'production of generator {g}': -total_generators['cost'][g] for g in GENERATORS}
-            },
-            
-            constraints_coeff = {
-                # Balance constraint: total generation must equal total demand
-                'balance constraint': {
-                    **{f'demand of load {j}': 1 for j in LOADS},
-                    **{f'production of generator {g}': -1 for g in GENERATORS}
-                },
-                # Generator capacity
-                **{f'capacity constraint {g}': {f'production of generator {k}': int(k == g) for k in GENERATORS} for g in GENERATORS},
-                # Demand minimum limits
-                **{f'demand min limit {j}': {f'demand of load {j}': 1} for j in LOADS},
-                # Demand maximum limits
-                **{f'demand max limit {j}': {f'demand of load {j}': 1} for j in LOADS}
-            },
-            
-            constraints_rhs = {
-                'balance constraint': 0,
-                **{f'capacity constraint {g}': total_generators['capacity'][g] for g in GENERATORS},
-                **{f'demand min limit {j}': demand_data['bid_quantity_min'][j] for j in LOADS},
-                **{f'demand max limit {j}': demand_data['bid_quantity_max'][j] for j in LOADS}
-            },
-            
-            constraints_sense = { 
-                'balance constraint': GRB.EQUAL,
-                **{f'capacity constraint {g}': GRB.LESS_EQUAL for g in GENERATORS},
-                **{f'demand min limit {j}': GRB.GREATER_EQUAL for j in LOADS},
-                **{f'demand max limit {j}': GRB.LESS_EQUAL for j in LOADS}
-            },
-            
-            objective_sense = GRB.MAXIMIZE, # maximize social welfare
-            model_name = "Market Clearing - 17 Loads (11 Inelastic + 6 Elastic)"
-     )
-    }
-    
-    model = LP_OptimizationProblem(input_data['model0'])
-    model.run()
-    
-    mcp = model.results.optimal_duals['balance constraint']
-    
-    total_generation = sum(model.results.variables[f'production of generator {g}'] for g in GENERATORS) #should always be the same  to demand as we set constraint to equality
-    total_demand_served = sum(model.results.variables[f'demand of load {j}'] for j in LOADS)
-    
-    # Calculate elastic vs inelastic served
-    elastic_demand_base = sum(total_demand * load_percentages[node] for node in elastic_nodes)
-    
-    elastic_served = sum(model.results.variables[f'demand of load {j}'] for j, node in enumerate(load_nodes) if node in elastic_nodes)
-    inelastic_served = sum(model.results.variables[f'demand of load {j}'] for j, node in enumerate(load_nodes) if node not in elastic_nodes)
-    
-    total_cost = sum(total_generators['cost'][g] * model.results.variables[f'production of generator {g}'] for g in GENERATORS)
-    
-    social_welfare = model.results.objective_value
-    
-    demand_utility = sum((demand_data['bid_price'][j] - mcp) * model.results.variables[f'demand of load {j}'] for j in LOADS)
-    
-    producer_surplus = mcp * total_generation - total_cost
-    
-    # Calculate flexibility index 
-    # Negative = curtailed (below base), Positive = increased (above base)
-    elastic_flexibility_pct = (elastic_served / elastic_demand_base - 1) * 100 if elastic_demand_base > 0 else 0
-    
-    if t == HOUR:  # Store detailed results for the hour selected for merit order curve analysis
-        model_selected = model
-        generators_selected = total_generators.copy() 
-        demand_data_selected = demand_data.copy()
-        producer_profits = {}
-        utility_by_load = {}
+results_df = pd.DataFrame(results_rows)
 
-        for g in GENERATORS:
-            p = model.results.variables[f'production of generator {g}']
-            cost = total_generators['cost'][g]
-            producer_profits[g] = mcp * p - cost * p
-
-        for j in LOADS:
-            q = model.results.variables[f'demand of load {j}']
-            bid_price = demand_data['bid_price'][j]
-            utility_by_load[j] = (bid_price-mcp) * q
-
-    # Store results
-    results_by_hour.append({
-        'hour': t + 1,
-        'mcp': mcp,
-        'generation': total_generation,
-        'demand_total': total_demand_served,
-        'demand_inelastic': inelastic_served,
-        'demand_elastic': elastic_served,
-        'elastic_base': elastic_demand_base,
-        'elastic_flexibility_pct': elastic_flexibility_pct,
-        'social_welfare': social_welfare,
-        'total_cost': total_cost,
-        'demand_utility': demand_utility,
-        'producer_surplus': producer_surplus
-    }) 
-results_df = pd.DataFrame(results_by_hour)
-
-
-# Print summary for the selected hour
-h = results_df[results_df['hour'] == HOUR + 1].iloc[0] 
-print('\n'f'Step 1 market-clearing outcomes for {HOUR + 1}:') 
-print(f'Market Clearing Price: €{h["mcp"]:.2f}/MWh') 
-print(f'Total Operatring Cost: €{h["total_cost"]:.2f}')
-print(f'Social Welfare: €{h["social_welfare"]:.2f}')
+print(f'\nStep 6 market-clearing outcomes for hour {HOUR + 1}:')
+print(f'Reserve price (upward):   €{reserve_price_up:.4f}/MW')
+print(f'Reserve price (downward): €{reserve_price_down:.4f}/MW')
+print(f'MCP without reserve: €{mcp_no_reserve:.2f}/MWh')
+print(f'MCP with reserve:    €{mcp_with_reserve:.2f}/MWh')
 print('\n')
-print(f"{'Node':<10}  {'Utility':<10}")
-for j in LOADS:
-    print(f"{f'{j+1}':<10} {utility_by_load[j]:<10.2f}") 
-print('\n')
-print(f"{'Generator':<10}  {'Profit':<10}")
-for g in GENERATORS:
-    print(f"{f'{g+1}':<10} {producer_profits[g]:<10.2f}") 
-print('\n') 
-print("Verifiy the market-clearing price using the KKT conditions")
-lam = model_selected.results.optimal_duals['balance constraint']
-print(f"MCP (λ): {lam:.4f}")
-# Stationarity
-for g in GENERATORS:
-    mu = model_selected.results.optimal_duals[f'capacity constraint {g}']
-    cost = generators_selected['cost'].iloc[g]  # ← corretto
-    print(f"Gen {g+1}: cost={cost:.2f}, μ={mu:.4f}, λ - C - μ = {lam - cost - mu:.6f}")
+print(f"{'Generator':<10} {'BSP':<6} {'r_up':>8} {'r_down':>8} {'disp_ref':>10} {'disp_rsv':>10} {'profit_ref':>12} {'profit_rsv':>12}")
+for _, row in results_df.iterrows():
+    print(f"{str(row['id']):<10} {str(row['is_bsp']):<6} {row['r_up_MW']:>8.2f} {row['r_down_MW']:>8.2f} "
+          f"{row['dispatch_no_rsv']:>10.2f} {row['dispatch_with_rsv']:>10.2f} "
+          f"{row['profit_no_rsv']:>12.2f} {row['profit_with_rsv']:>12.2f}")
 
-# Demand
-print("\nStationary Demand:")
-for j in LOADS:
-    bid = demand_data_selected['bid_price'][j]
-    nu_min = model_selected.results.optimal_duals[f'demand min limit {j}']
-    nu_max = model_selected.results.optimal_duals[f'demand max limit {j}']
-    print(f"Load {j+1}: bid={bid:.2f}, λ={lam:.4f}, ν_min={nu_min:.4f}, ν_max={nu_max:.4f}, "
-          f"bid - λ + ν_max - ν_min = {bid - lam + nu_max - nu_min:.6f}")
+# PLOTS
 
-# Complementary slackness
-for g in GENERATORS:
-    p = model_selected.results.variables[f'production of generator {g}']
-    cap = generators_selected['capacity'].iloc[g]  # ← corretto
-    mu = model_selected.results.optimal_duals[f'capacity constraint {g}']
-    print(f"Gen {g+1}: μ*(P_max - p) = {mu * (cap - p):.6f}")
+fig, axes = plt.subplots(1, 2, figsize=(14, 6))
 
-print('\nExtra info:')
-print(f'Total Generation: {h["generation"]:.2f} MW')
-print(f'Total Demand Served: {h["demand_total"]:.2f} MW')
-print(f'  - Inelastic: {h["demand_inelastic"]:.2f} MW (base: {h["demand_inelastic"]:.2f} MW)')
-print(f'  - Elastic: {h["demand_elastic"]:.2f} MW (base: {h["elastic_base"]:.2f} MW)')
-print(f'  - Elastic Flexibility: {h["elastic_flexibility_pct"]:+.1f}%')
+# Panel 1: dispatch comparison with vs without reserve
+x = np.arange(len(results_df))
+width = 0.35
+axes[0].bar(x - width/2, results_df['dispatch_no_rsv'],   width, label='No reserve (Step 1)', color='steelblue', alpha=0.8)
+axes[0].bar(x + width/2, results_df['dispatch_with_rsv'], width, label='With reserve (Step 6)', color='darkorange', alpha=0.8)
+axes[0].set_xticks(x)
+axes[0].set_xticklabels(results_df['id'], rotation=45, ha='right', fontsize=9)
+axes[0].set_ylabel('Dispatch (MW)', fontweight='bold')
+axes[0].set_title('Generator Dispatch: Step 1 vs Step 6', fontweight='bold')
+axes[0].legend()
+axes[0].grid(True, alpha=0.3, axis='y')
 
+# Panel 2: reserve allocation per BSP
+bsp_results = results_df[results_df['is_bsp']].copy()
+x2 = np.arange(len(bsp_results))
+axes[1].bar(x2 - width/2, bsp_results['r_up_MW'],   width, label='Reserve up (MW)',   color='green',   alpha=0.8)
+axes[1].bar(x2 + width/2, bsp_results['r_down_MW'], width, label='Reserve down (MW)', color='crimson', alpha=0.8)
+axes[1].set_xticks(x2)
+axes[1].set_xticklabels(bsp_results['id'], rotation=45, ha='right', fontsize=9)
+axes[1].set_ylabel('Reserve Capacity (MW)', fontweight='bold')
+axes[1].set_title(f'Reserve Allocation per BSP\nMCP: €{mcp_no_reserve:.2f} → €{mcp_with_reserve:.2f}/MWh', fontweight='bold')
+axes[1].legend()
+axes[1].grid(True, alpha=0.3, axis='y')
 
-print(f'Producer Surplus: €{h["producer_surplus"]:.2f}')
-
-fig, axes = plt.subplots(2, 2, figsize=(16, 10))
-
-# Graph 1: Market Clearing Price 
-
-axes[0, 0].plot(results_df['hour'], results_df['mcp'], marker='o', linewidth=2, color='blue')
-axes[0, 0].set_xlabel('Hour', fontweight='bold')
-axes[0, 0].set_ylabel('Market Clearing Price (€/MWh)', fontweight='bold')
-axes[0, 0].set_title('Market Clearing Price - 24 Hours', fontweight='bold')
-axes[0, 0].grid(True, alpha=0.3)
-axes[0, 0].set_xticks(range(1, 25))
-
-# Graph 2: Social Welfare
-axes[0, 1].plot(results_df['hour'], results_df['social_welfare'], marker='s', linewidth=2, color='green')
-axes[0, 1].set_xlabel('Hour', fontweight='bold')
-axes[0, 1].set_ylabel('Social Welfare (€)', fontweight='bold')
-axes[0, 1].set_title('Social Welfare - 24 Hours', fontweight='bold')
-axes[0, 1].grid(True, alpha=0.3)
-axes[0, 1].set_xticks(range(1, 25))
-
-# Graph 3: Demand Breakdown (elastic vs inelastic)
-axes[1, 0].plot(results_df['hour'], results_df['demand_inelastic'], marker='^', linewidth=2, 
-                color='orange', label='Inelastic Demand')
-axes[1, 0].plot(results_df['hour'], results_df['demand_elastic'], marker='v', linewidth=2, 
-                color='purple', label='Elastic Demand')
-axes[1, 0].plot(results_df['hour'], results_df['demand_total'], marker='o', linewidth=2, 
-                color='red', label='Total Demand', linestyle='--')
-axes[1, 0].set_xlabel('Hour', fontweight='bold')
-axes[1, 0].set_ylabel('Demand (MW)', fontweight='bold')
-axes[1, 0].set_title('Demand Components - 24 Hours', fontweight='bold')
-axes[1, 0].legend()
-axes[1, 0].grid(True, alpha=0.3)
-axes[1, 0].set_xticks(range(1, 25))
-
-# Graph 4: Elastic Flexibility
-flex_values = results_df['elastic_flexibility_pct'].values
-colors = ['green' if x > 0 else 'red' for x in flex_values]
-
-axes[1, 1].bar(results_df['hour'], flex_values, color=colors, alpha=0.7)
-axes[1, 1].axhline(y=0, color='black', linestyle='-', linewidth=1.0)
-axes[1, 1].set_xlabel('Hour', fontweight='bold')
-axes[1, 1].set_ylabel('Elastic Flexibility (%)', fontweight='bold')
-axes[1, 1].set_title('Elastic Demand Flexibility - 24 Hours\n(Negative=Curtailed, Positive=Increased)', fontweight='bold')
-axes[1, 1].grid(True, alpha=0.3, axis='y')
-axes[1, 1].set_xticks(range(1, 25))
-
-plt.tight_layout() 
-plt.savefig(plots_dir / '24h_market_results.png', dpi=150, bbox_inches='tight') 
+plt.tight_layout()
+plt.savefig(plots_dir / f'step6_results_hour_{HOUR + 1}.png', dpi=150, bbox_inches='tight')
 plt.close()
 
-# ============================================================================
-# MERIT ORDER CURVE + DEMAND CURVE (chosen hour)
-# ============================================================================
 
-# --- Supply curve data ---
-wind_generator['capacity'] = wind_capacity[:, HOUR]
-moc_generators = pd.concat([conventional_generators, wind_generator], ignore_index=True)
-moc_generators_sorted = moc_generators.copy().sort_values(by=["cost"])
+# CSV Exports 
 
-# Build cumulative supply curve (step function)
-supply_cumulative = []
-supply_cost = []
-for i in range(len(moc_generators_sorted)):
-    supply_cumulative.append(sum(moc_generators_sorted['capacity'][:i]))
-    supply_cost.append(moc_generators_sorted['cost'].iloc[i])
+results_df.to_csv(plots_dir / 'step6_generator_results.csv', index=False)
 
-# --- Demand curve data ---
-# Use accepted quantities from the optimizer (not theoretical max)
-demand_bids = []
-for j, node in enumerate(load_nodes):
-    qty_max = demand_data_selected['bid_quantity_max'].iloc[j]  # full offered quantity
-    if node in elastic_nodes:
-        demand_bids.append((qty_max, elastic_bid_prices[node]))
-    else:
-        demand_bids.append((qty_max, VOLL))  # VoLL for inelastic loads
-
-# Sort by bid price descending (highest willingness to pay first)
-demand_bids.sort(key=lambda x: x[1], reverse=True)
-
-# Build cumulative demand curve
-demand_cumulative = [0]
-for qty, _ in demand_bids:
-    demand_cumulative.append(demand_cumulative[-1] + qty)
-
-# Build step-function coordinates for demand curve
-demand_x, demand_y = [], []
-for i, (qty, bid) in enumerate(demand_bids):
-    demand_x += [demand_cumulative[i], demand_cumulative[i + 1]]
-    demand_y += [bid, bid]
-demand_x.append(demand_cumulative[-1])
-demand_y.append(0)
-
-# MCP from optimizer (dual variable of balance constraint)
-moc_equilibrium = results_df.loc[results_df['hour'] == HOUR + 1, 'mcp'].values[0]
-
-# --- Plot: split Y-axis ---
-# Top panel: inelastic demand at VoLL (€500)
-# Bottom panel: elastic bids and MCP zone (0–45 €/MWh)
-fig, (ax_top, ax_bottom) = plt.subplots(
-    2, 1,
-    figsize=(12, 8),
-    gridspec_kw={'height_ratios': [1, 3]},  # top panel smaller
-    sharex=True
-)
-fig.subplots_adjust(hspace=0.05)
-
-# --- Top panel: VoLL zone ---
-for ax in (ax_top, ax_bottom):
-    ax.step(supply_cumulative, supply_cost, where='post',
-            linewidth=2.5, color='steelblue', label='Supply Curve')
-    ax.fill_between(supply_cumulative, supply_cost,
-                    step='post', alpha=0.2, color='steelblue')
-    ax.plot(demand_x, demand_y, linewidth=2.5, color='red', label='Demand Curve')
-    ax.axhline(y=moc_equilibrium, color='green', linestyle='--', linewidth=2,
-               label=f'MCP: €{moc_equilibrium:.2f}/MWh')
-    ax.grid(True, alpha=0.3)
-
-# Top panel shows only the VoLL region
-ax_top.set_ylim(470, 530)
-ax_top.set_yticks([VOLL])
-ax_top.set_ylabel('VoLL (€/MWh)', fontsize=10)
-ax_top.spines['bottom'].set_visible(False)
-ax_top.tick_params(bottom=False)
-
-# Bottom panel shows the economically relevant region
-ax_bottom.set_ylim(0, max(elastic_bid_prices.values()) * 1.5)
-ax_bottom.set_xlim(0, demand_cumulative[-1] * 1.15)
-ax_bottom.set_ylabel('Price (€/MWh)', fontsize=12, fontweight='bold')
-ax_bottom.set_xlabel('Cumulative Capacity / Demand (MW)', fontsize=12, fontweight='bold')
-ax_bottom.spines['top'].set_visible(False)
-ax_bottom.legend(fontsize=11, loc='upper right')
-
-# --- Broken axis indicators (diagonal marks at the split) ---
-d = 0.015  # size of diagonal marks
-kwargs = dict(transform=ax_top.transAxes, color='k', clip_on=False, linewidth=1.5)
-ax_top.plot((-d, +d), (-d, +d), **kwargs)        # bottom-left of top panel
-ax_top.plot((1 - d, 1 + d), (-d, +d), **kwargs)  # bottom-right of top panel
-
-kwargs.update(transform=ax_bottom.transAxes)
-ax_bottom.plot((-d, +d), (1 - d, 1 + d), **kwargs)        # top-left of bottom panel
-ax_bottom.plot((1 - d, 1 + d), (1 - d, 1 + d), **kwargs)  # top-right of bottom panel
-
-# --- Title and save ---
-fig.suptitle(f'Merit Order & Demand Curve - Hour {HOUR + 1}',
-             fontsize=14, fontweight='bold', y=0.98)
-
-plt.savefig(plots_dir / f'merit_order_hour_{HOUR + 1}.png', dpi=150, bbox_inches='tight')
-plt.show()
- 
-# ── CSV EXPORTS ──────────────────────────────────────────────────────────────
-
-# 1. Hourly results (24 rows)
-results_df.to_csv(plots_dir / 'step1_hourly_results.csv', index=False)
-
-# 2. Producer profits for selected hour
-producer_rows = []
-for g in GENERATORS:
-    producer_rows.append({
-        'generator'   : generators_selected['id'].iloc[g],
-        'cost_EUR_MWh': round(generators_selected['cost'].iloc[g], 4),
-        'dispatch_MW' : round(model_selected.results.variables[f'production of generator {g}'], 4),
-        'profit_EUR'  : round(producer_profits[g], 4),
-    })
-pd.DataFrame(producer_rows).to_csv(plots_dir / 'step1_producer_profits.csv', index=False)
-
-# 3. Load utilities for selected hour
-load_rows = []
-for j in LOADS:
-    node = load_nodes[j]
-    load_rows.append({
-        'load'          : j + 1,
-        'node'          : node,
-        'type'          : 'elastic' if node in elastic_nodes else 'inelastic',
-        'bid_price'     : round(demand_data_selected['bid_price'].iloc[j], 4),
-        'served_MW'     : round(model_selected.results.variables[f'demand of load {j}'], 4),
-        'utility_EUR'   : round(utility_by_load[j], 4),
-    })
-pd.DataFrame(load_rows).to_csv(plots_dir / 'step1_load_utilities.csv', index=False)
-
-print(f"✓ CSVs saved to '{plots_dir.name}/'")
+print(f"CSVs saved to '{plots_dir.name}/'")

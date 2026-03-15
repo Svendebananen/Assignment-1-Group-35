@@ -1,0 +1,2 @@
+hour,mcp_no_reserve_EURMWh,mcp_with_reserve_EURMWh,reserve_price_up_EURMW,reserve_price_down_EURMW,upward_reserve_req_MW,downward_reserve_req_MW,total_demand_MW
+10,10.52,13.32,0.5745,0.301,381.67,254.45,2544.48
