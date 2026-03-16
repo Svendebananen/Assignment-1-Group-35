@@ -97,7 +97,8 @@ class LP_OptimizationProblem():
 # Import data from case study
 date = '2019-08-31' # Choose data for wind turbine generation
 
-conventional_generators = pd.read_csv('GeneratorsData.csv', header=None, names=['id','bus','capacity','cost']) # conventional generators data
+conventional_generators = pd.read_csv('GeneratorsData.csv', header=None,
+                                      names=['id','bus','capacity','cost','r_plus','r_minus'])
 
 # Creating the wind capacity matrix for 6 wind generators and 24 hours
 wind_capacity = np.zeros((6, 24)) # placeholder for wind generator data, to be filled with actual data from CSV files for hourly optimization
@@ -230,12 +231,12 @@ input_data = {
             } for g in BSP},
         },
 
-        constraints_rhs = {
+       constraints_rhs = {
             'upward reserve requirement':   upward_reserve_req,
             'downward reserve requirement': downward_reserve_req,
-            **{f'reserve up capacity {g}':    bsp_data['capacity'][g] for g in BSP},
-            **{f'reserve down capacity {g}':  bsp_data['capacity'][g] for g in BSP},
-            **{f'reserve joint capacity {g}': bsp_data['capacity'][g] for g in BSP},
+            **{f'reserve up capacity {g}':    bsp_data['r_plus'][g]   for g in BSP},  # ← R_i^+
+            **{f'reserve down capacity {g}':  bsp_data['r_minus'][g]  for g in BSP},  # ← R_i^-
+            **{f'reserve joint capacity {g}': bsp_data['capacity'][g] for g in BSP},  # P_max invariato
         },
 
         constraints_sense = {
