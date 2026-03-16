@@ -9,9 +9,10 @@ import matplotlib.pyplot as plt
 # import os library to consider the same folder of this file for the csv reading
 import os
 from pathlib import Path
-os.chdir(Path(__file__).parent) 
 
-# create output folder for plots
+from module_LP import LP_InputData, LP_OptimizationProblem, Expando
+os.chdir(Path(__file__).parent)
+# Create output folder for plots
 plots_dir = Path(__file__).parent / 'step 1 plots'
 plots_dir.mkdir(exist_ok=True)
 
@@ -155,8 +156,7 @@ VOLL = 500
 # Hour selected for merit order curve analysis (0-based index)
 HOUR = 8  
 
-
-
+# Optimization for each hour
 # Define ranges and indexes
 
 TIME_STEPS = 24 # time step in hours 
@@ -279,6 +279,9 @@ for t in range(TIME_STEPS):  # Loop over time steps (hours)
         demand_data_selected = demand_data.copy()
         producer_profits = {}
         utility_by_load = {}
+        total_demand_served_t = sum(model.results.variables[f'demand of load {j}'] for j in LOADS)
+        production_t = [ model.results.variables[f'production of generator {g}'] for g in GENERATORS]
+        mcp_t = mcp
 
         for g in GENERATORS:
             p = model.results.variables[f'production of generator {g}']
@@ -358,182 +361,183 @@ print(f'  - Elastic Flexibility: {h["elastic_flexibility_pct"]:+.1f}%')
 
 print(f'Producer Surplus: €{h["producer_surplus"]:.2f}')
 
-fig, axes = plt.subplots(2, 2, figsize=(16, 10))
 
-# Graph 1: Market Clearing Price 
+# fig, axes = plt.subplots(2, 2, figsize=(16, 10))
 
-axes[0, 0].plot(results_df['hour'], results_df['mcp'], marker='o', linewidth=2, color='blue')
-axes[0, 0].set_xlabel('Hour', fontweight='bold')
-axes[0, 0].set_ylabel('Market Clearing Price (€/MWh)', fontweight='bold')
-axes[0, 0].set_title('Market Clearing Price - 24 Hours', fontweight='bold')
-axes[0, 0].grid(True, alpha=0.3)
-axes[0, 0].set_xticks(range(1, 25))
+# # Graph 1: Market Clearing Price 
 
-# Graph 2: Social Welfare
-axes[0, 1].plot(results_df['hour'], results_df['social_welfare'], marker='s', linewidth=2, color='green')
-axes[0, 1].set_xlabel('Hour', fontweight='bold')
-axes[0, 1].set_ylabel('Social Welfare (€)', fontweight='bold')
-axes[0, 1].set_title('Social Welfare - 24 Hours', fontweight='bold')
-axes[0, 1].grid(True, alpha=0.3)
-axes[0, 1].set_xticks(range(1, 25))
+# axes[0, 0].plot(results_df['hour'], results_df['mcp'], marker='o', linewidth=2, color='blue')
+# axes[0, 0].set_xlabel('Hour', fontweight='bold')
+# axes[0, 0].set_ylabel('Market Clearing Price (€/MWh)', fontweight='bold')
+# axes[0, 0].set_title('Market Clearing Price - 24 Hours', fontweight='bold')
+# axes[0, 0].grid(True, alpha=0.3)
+# axes[0, 0].set_xticks(range(1, 25))
 
-# Graph 3: Demand Breakdown (elastic vs inelastic)
-axes[1, 0].plot(results_df['hour'], results_df['demand_inelastic'], marker='^', linewidth=2, 
-                color='orange', label='Inelastic Demand')
-axes[1, 0].plot(results_df['hour'], results_df['demand_elastic'], marker='v', linewidth=2, 
-                color='purple', label='Elastic Demand')
-axes[1, 0].plot(results_df['hour'], results_df['demand_total'], marker='o', linewidth=2, 
-                color='red', label='Total Demand', linestyle='--')
-axes[1, 0].set_xlabel('Hour', fontweight='bold')
-axes[1, 0].set_ylabel('Demand (MW)', fontweight='bold')
-axes[1, 0].set_title('Demand Components - 24 Hours', fontweight='bold')
-axes[1, 0].legend()
-axes[1, 0].grid(True, alpha=0.3)
-axes[1, 0].set_xticks(range(1, 25))
+# # Graph 2: Social Welfare
+# axes[0, 1].plot(results_df['hour'], results_df['social_welfare'], marker='s', linewidth=2, color='green')
+# axes[0, 1].set_xlabel('Hour', fontweight='bold')
+# axes[0, 1].set_ylabel('Social Welfare (€)', fontweight='bold')
+# axes[0, 1].set_title('Social Welfare - 24 Hours', fontweight='bold')
+# axes[0, 1].grid(True, alpha=0.3)
+# axes[0, 1].set_xticks(range(1, 25))
 
-# Graph 4: Elastic Flexibility
-flex_values = results_df['elastic_flexibility_pct'].values
-colors = ['green' if x > 0 else 'red' for x in flex_values]
+# # Graph 3: Demand Breakdown (elastic vs inelastic)
+# axes[1, 0].plot(results_df['hour'], results_df['demand_inelastic'], marker='^', linewidth=2, 
+#                 color='orange', label='Inelastic Demand')
+# axes[1, 0].plot(results_df['hour'], results_df['demand_elastic'], marker='v', linewidth=2, 
+#                 color='purple', label='Elastic Demand')
+# axes[1, 0].plot(results_df['hour'], results_df['demand_total'], marker='o', linewidth=2, 
+#                 color='red', label='Total Demand', linestyle='--')
+# axes[1, 0].set_xlabel('Hour', fontweight='bold')
+# axes[1, 0].set_ylabel('Demand (MW)', fontweight='bold')
+# axes[1, 0].set_title('Demand Components - 24 Hours', fontweight='bold')
+# axes[1, 0].legend()
+# axes[1, 0].grid(True, alpha=0.3)
+# axes[1, 0].set_xticks(range(1, 25))
 
-axes[1, 1].bar(results_df['hour'], flex_values, color=colors, alpha=0.7)
-axes[1, 1].axhline(y=0, color='black', linestyle='-', linewidth=1.0)
-axes[1, 1].set_xlabel('Hour', fontweight='bold')
-axes[1, 1].set_ylabel('Elastic Flexibility (%)', fontweight='bold')
-axes[1, 1].set_title('Elastic Demand Flexibility - 24 Hours\n(Negative=Curtailed, Positive=Increased)', fontweight='bold')
-axes[1, 1].grid(True, alpha=0.3, axis='y')
-axes[1, 1].set_xticks(range(1, 25))
+# # Graph 4: Elastic Flexibility
+# flex_values = results_df['elastic_flexibility_pct'].values
+# colors = ['green' if x > 0 else 'red' for x in flex_values]
 
-plt.tight_layout() 
-plt.savefig(plots_dir / '24h_market_results.png', dpi=150, bbox_inches='tight') 
-plt.close()
+# axes[1, 1].bar(results_df['hour'], flex_values, color=colors, alpha=0.7)
+# axes[1, 1].axhline(y=0, color='black', linestyle='-', linewidth=1.0)
+# axes[1, 1].set_xlabel('Hour', fontweight='bold')
+# axes[1, 1].set_ylabel('Elastic Flexibility (%)', fontweight='bold')
+# axes[1, 1].set_title('Elastic Demand Flexibility - 24 Hours\n(Negative=Curtailed, Positive=Increased)', fontweight='bold')
+# axes[1, 1].grid(True, alpha=0.3, axis='y')
+# axes[1, 1].set_xticks(range(1, 25))
 
-# ============================================================================
-# MERIT ORDER CURVE + DEMAND CURVE (chosen hour)
-# ============================================================================
+# plt.tight_layout() 
+# plt.savefig(plots_dir / '24h_market_results.png', dpi=150, bbox_inches='tight') 
+# plt.close()
 
-# --- Supply curve data ---
-wind_generator['capacity'] = wind_capacity[:, HOUR]
-moc_generators = pd.concat([conventional_generators, wind_generator], ignore_index=True)
-moc_generators_sorted = moc_generators.copy().sort_values(by=["cost"])
+# # ============================================================================
+# # MERIT ORDER CURVE + DEMAND CURVE (chosen hour)
+# # ============================================================================
 
-# Build cumulative supply curve (step function)
-supply_cumulative = []
-supply_cost = []
-for i in range(len(moc_generators_sorted)):
-    supply_cumulative.append(sum(moc_generators_sorted['capacity'][:i]))
-    supply_cost.append(moc_generators_sorted['cost'].iloc[i])
+# # --- Supply curve data ---
+# wind_generator['capacity'] = wind_capacity[:, HOUR]
+# moc_generators = pd.concat([conventional_generators, wind_generator], ignore_index=True)
+# moc_generators_sorted = moc_generators.copy().sort_values(by=["cost"])
 
-# --- Demand curve data ---
-# Use accepted quantities from the optimizer (not theoretical max)
-demand_bids = []
-for j, node in enumerate(load_nodes):
-    qty_max = demand_data_selected['bid_quantity_max'].iloc[j]  # full offered quantity
-    if node in elastic_nodes:
-        demand_bids.append((qty_max, elastic_bid_prices[node]))
-    else:
-        demand_bids.append((qty_max, VOLL))  # VoLL for inelastic loads
+# # Build cumulative supply curve (step function)
+# supply_cumulative = []
+# supply_cost = []
+# for i in range(len(moc_generators_sorted)):
+#     supply_cumulative.append(sum(moc_generators_sorted['capacity'][:i]))
+#     supply_cost.append(moc_generators_sorted['cost'].iloc[i])
 
-# Sort by bid price descending (highest willingness to pay first)
-demand_bids.sort(key=lambda x: x[1], reverse=True)
+# # --- Demand curve data ---
+# # Use accepted quantities from the optimizer (not theoretical max)
+# demand_bids = []
+# for j, node in enumerate(load_nodes):
+#     qty_max = demand_data_selected['bid_quantity_max'].iloc[j]  # full offered quantity
+#     if node in elastic_nodes:
+#         demand_bids.append((qty_max, elastic_bid_prices[node]))
+#     else:
+#         demand_bids.append((qty_max, VOLL))  # VoLL for inelastic loads
 
-# Build cumulative demand curve
-demand_cumulative = [0]
-for qty, _ in demand_bids:
-    demand_cumulative.append(demand_cumulative[-1] + qty)
+# # Sort by bid price descending (highest willingness to pay first)
+# demand_bids.sort(key=lambda x: x[1], reverse=True)
 
-# Build step-function coordinates for demand curve
-demand_x, demand_y = [], []
-for i, (qty, bid) in enumerate(demand_bids):
-    demand_x += [demand_cumulative[i], demand_cumulative[i + 1]]
-    demand_y += [bid, bid]
-demand_x.append(demand_cumulative[-1])
-demand_y.append(0)
+# # Build cumulative demand curve
+# demand_cumulative = [0]
+# for qty, _ in demand_bids:
+#     demand_cumulative.append(demand_cumulative[-1] + qty)
 
-# MCP from optimizer (dual variable of balance constraint)
-moc_equilibrium = results_df.loc[results_df['hour'] == HOUR + 1, 'mcp'].values[0]
+# # Build step-function coordinates for demand curve
+# demand_x, demand_y = [], []
+# for i, (qty, bid) in enumerate(demand_bids):
+#     demand_x += [demand_cumulative[i], demand_cumulative[i + 1]]
+#     demand_y += [bid, bid]
+# demand_x.append(demand_cumulative[-1])
+# demand_y.append(0)
 
-# --- Plot: split Y-axis ---
-# Top panel: inelastic demand at VoLL (€500)
-# Bottom panel: elastic bids and MCP zone (0–45 €/MWh)
-fig, (ax_top, ax_bottom) = plt.subplots(
-    2, 1,
-    figsize=(12, 8),
-    gridspec_kw={'height_ratios': [1, 3]},  # top panel smaller
-    sharex=True
-)
-fig.subplots_adjust(hspace=0.05)
+# # MCP from optimizer (dual variable of balance constraint)
+# moc_equilibrium = results_df.loc[results_df['hour'] == HOUR + 1, 'mcp'].values[0]
 
-# --- Top panel: VoLL zone ---
-for ax in (ax_top, ax_bottom):
-    ax.step(supply_cumulative, supply_cost, where='post',
-            linewidth=2.5, color='steelblue', label='Supply Curve')
-    ax.fill_between(supply_cumulative, supply_cost,
-                    step='post', alpha=0.2, color='steelblue')
-    ax.plot(demand_x, demand_y, linewidth=2.5, color='red', label='Demand Curve')
-    ax.axhline(y=moc_equilibrium, color='green', linestyle='--', linewidth=2,
-               label=f'MCP: €{moc_equilibrium:.2f}/MWh')
-    ax.grid(True, alpha=0.3)
+# # --- Plot: split Y-axis ---
+# # Top panel: inelastic demand at VoLL (€500)
+# # Bottom panel: elastic bids and MCP zone (0–45 €/MWh)
+# fig, (ax_top, ax_bottom) = plt.subplots(
+#     2, 1,
+#     figsize=(12, 8),
+#     gridspec_kw={'height_ratios': [1, 3]},  # top panel smaller
+#     sharex=True
+# )
+# fig.subplots_adjust(hspace=0.05)
 
-# Top panel shows only the VoLL region
-ax_top.set_ylim(470, 530)
-ax_top.set_yticks([VOLL])
-ax_top.set_ylabel('VoLL (€/MWh)', fontsize=10)
-ax_top.spines['bottom'].set_visible(False)
-ax_top.tick_params(bottom=False)
+# # --- Top panel: VoLL zone ---
+# for ax in (ax_top, ax_bottom):
+#     ax.step(supply_cumulative, supply_cost, where='post',
+#             linewidth=2.5, color='steelblue', label='Supply Curve')
+#     ax.fill_between(supply_cumulative, supply_cost,
+#                     step='post', alpha=0.2, color='steelblue')
+#     ax.plot(demand_x, demand_y, linewidth=2.5, color='red', label='Demand Curve')
+#     ax.axhline(y=moc_equilibrium, color='green', linestyle='--', linewidth=2,
+#                label=f'MCP: €{moc_equilibrium:.2f}/MWh')
+#     ax.grid(True, alpha=0.3)
 
-# Bottom panel shows the economically relevant region
-ax_bottom.set_ylim(0, max(elastic_bid_prices.values()) * 1.5)
-ax_bottom.set_xlim(0, demand_cumulative[-1] * 1.15)
-ax_bottom.set_ylabel('Price (€/MWh)', fontsize=12, fontweight='bold')
-ax_bottom.set_xlabel('Cumulative Capacity / Demand (MW)', fontsize=12, fontweight='bold')
-ax_bottom.spines['top'].set_visible(False)
-ax_bottom.legend(fontsize=11, loc='upper right')
+# # Top panel shows only the VoLL region
+# ax_top.set_ylim(470, 530)
+# ax_top.set_yticks([VOLL])
+# ax_top.set_ylabel('VoLL (€/MWh)', fontsize=10)
+# ax_top.spines['bottom'].set_visible(False)
+# ax_top.tick_params(bottom=False)
 
-# --- Broken axis indicators (diagonal marks at the split) ---
-d = 0.015  # size of diagonal marks
-kwargs = dict(transform=ax_top.transAxes, color='k', clip_on=False, linewidth=1.5)
-ax_top.plot((-d, +d), (-d, +d), **kwargs)        # bottom-left of top panel
-ax_top.plot((1 - d, 1 + d), (-d, +d), **kwargs)  # bottom-right of top panel
+# # Bottom panel shows the economically relevant region
+# ax_bottom.set_ylim(0, max(elastic_bid_prices.values()) * 1.5)
+# ax_bottom.set_xlim(0, demand_cumulative[-1] * 1.15)
+# ax_bottom.set_ylabel('Price (€/MWh)', fontsize=12, fontweight='bold')
+# ax_bottom.set_xlabel('Cumulative Capacity / Demand (MW)', fontsize=12, fontweight='bold')
+# ax_bottom.spines['top'].set_visible(False)
+# ax_bottom.legend(fontsize=11, loc='upper right')
 
-kwargs.update(transform=ax_bottom.transAxes)
-ax_bottom.plot((-d, +d), (1 - d, 1 + d), **kwargs)        # top-left of bottom panel
-ax_bottom.plot((1 - d, 1 + d), (1 - d, 1 + d), **kwargs)  # top-right of bottom panel
+# # --- Broken axis indicators (diagonal marks at the split) ---
+# d = 0.015  # size of diagonal marks
+# kwargs = dict(transform=ax_top.transAxes, color='k', clip_on=False, linewidth=1.5)
+# ax_top.plot((-d, +d), (-d, +d), **kwargs)        # bottom-left of top panel
+# ax_top.plot((1 - d, 1 + d), (-d, +d), **kwargs)  # bottom-right of top panel
 
-# --- Title and save ---
-fig.suptitle(f'Merit Order & Demand Curve - Hour {HOUR + 1}',
-             fontsize=14, fontweight='bold', y=0.98)
+# kwargs.update(transform=ax_bottom.transAxes)
+# ax_bottom.plot((-d, +d), (1 - d, 1 + d), **kwargs)        # top-left of bottom panel
+# ax_bottom.plot((1 - d, 1 + d), (1 - d, 1 + d), **kwargs)  # top-right of bottom panel
 
-plt.savefig(plots_dir / f'merit_order_hour_{HOUR + 1}.png', dpi=150, bbox_inches='tight')
-plt.show()
+# # --- Title and save ---
+# fig.suptitle(f'Merit Order & Demand Curve - Hour {HOUR + 1}',
+#              fontsize=14, fontweight='bold', y=0.98)
+
+# plt.savefig(plots_dir / f'merit_order_hour_{HOUR + 1}.png', dpi=150, bbox_inches='tight')
+# plt.show()
  
-# ── CSV EXPORTS ──────────────────────────────────────────────────────────────
+# # ── CSV EXPORTS ──────────────────────────────────────────────────────────────
 
-# 1. Hourly results (24 rows)
-results_df.to_csv(plots_dir / 'step1_hourly_results.csv', index=False)
+# # 1. Hourly results (24 rows)
+# results_df.to_csv(plots_dir / 'step1_hourly_results.csv', index=False)
 
-# 2. Producer profits for selected hour
-producer_rows = []
-for g in GENERATORS:
-    producer_rows.append({
-        'generator'   : generators_selected['id'].iloc[g],
-        'cost_EUR_MWh': round(generators_selected['cost'].iloc[g], 4),
-        'dispatch_MW' : round(model_selected.results.variables[f'production of generator {g}'], 4),
-        'profit_EUR'  : round(producer_profits[g], 4),
-    })
-pd.DataFrame(producer_rows).to_csv(plots_dir / 'step1_producer_profits.csv', index=False)
+# # 2. Producer profits for selected hour
+# producer_rows = []
+# for g in GENERATORS:
+#     producer_rows.append({
+#         'generator'   : generators_selected['id'].iloc[g],
+#         'cost_EUR_MWh': round(generators_selected['cost'].iloc[g], 4),
+#         'dispatch_MW' : round(model_selected.results.variables[f'production of generator {g}'], 4),
+#         'profit_EUR'  : round(producer_profits[g], 4),
+#     })
+# pd.DataFrame(producer_rows).to_csv(plots_dir / 'step1_producer_profits.csv', index=False)
 
-# 3. Load utilities for selected hour
-load_rows = []
-for j in LOADS:
-    node = load_nodes[j]
-    load_rows.append({
-        'load'          : j + 1,
-        'node'          : node,
-        'type'          : 'elastic' if node in elastic_nodes else 'inelastic',
-        'bid_price'     : round(demand_data_selected['bid_price'].iloc[j], 4),
-        'served_MW'     : round(model_selected.results.variables[f'demand of load {j}'], 4),
-        'utility_EUR'   : round(utility_by_load[j], 4),
-    })
-pd.DataFrame(load_rows).to_csv(plots_dir / 'step1_load_utilities.csv', index=False)
+# # 3. Load utilities for selected hour
+# load_rows = []
+# for j in LOADS:
+#     node = load_nodes[j]
+#     load_rows.append({
+#         'load'          : j + 1,
+#         'node'          : node,
+#         'type'          : 'elastic' if node in elastic_nodes else 'inelastic',
+#         'bid_price'     : round(demand_data_selected['bid_price'].iloc[j], 4),
+#         'served_MW'     : round(model_selected.results.variables[f'demand of load {j}'], 4),
+#         'utility_EUR'   : round(utility_by_load[j], 4),
+#     })
+# pd.DataFrame(load_rows).to_csv(plots_dir / 'step1_load_utilities.csv', index=False)
 
-print(f"✓ CSVs saved to '{plots_dir.name}/'")
+# print(f"✓ CSVs saved to '{plots_dir.name}/'")
