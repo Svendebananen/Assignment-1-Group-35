@@ -1,0 +1,2 @@
+hour,total_demand_MW,upward_req_MW,downward_req_MW,reserve_price_up,reserve_price_down,mcp_no_reserve,mcp_with_reserve,mcp_delta,sw_no_reserve,sw_with_reserve,sw_loss,op_cost_no_reserve,op_cost_with_reserve,op_cost_increase
+9,2517.975,377.69624999999996,251.7975,2.611,1.0465,10.52,10.52,0.0,748445.166478,747377.554503,1067.611975000007,10887.964397,11955.576372,1067.6119749999998

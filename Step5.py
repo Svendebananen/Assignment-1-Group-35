@@ -11,9 +11,9 @@ from gurobipy import GRB
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+# importing os library to consider the same folder of this file for the csv reading
 import os
 from pathlib import Path
-from module_LP import LP_InputData, LP_OptimizationProblem, Expando
 os.chdir(Path(__file__).parent)
 
 plots_dir = Path(__file__).parent / 'step 5 plots'
