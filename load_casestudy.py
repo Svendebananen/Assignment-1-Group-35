@@ -65,5 +65,3 @@ generator_actual_production = { # actual production of each generator id, to be 
 CURTAILMENT_COST = 500 # cost of curtailing load in the balancing market (€/MWh), set high to prioritize generation adjustments over load curtailment
 potential_balancing_generators = [1,4,5,6,8,9] # list of generator ids that can provide balancing services (excluding the failed generator 10 and the wind generators with uncertain production)
 
-
-print(total_generators)

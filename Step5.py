@@ -64,6 +64,7 @@ balancing_data['down_price'] = mcp - 0.15 * balancing_data['cost']
 curtailment_data = pd.DataFrame({"id": ["load"], "capacity": [total_load], "cost": [CURTAILMENT_COST], "scheduled_production":[total_load],"actual_production":[total_load],"up_capacity": [total_load], "down_capacity": [0], "up_price": [CURTAILMENT_COST], "down_price": [0]})
 balancing_data = pd.concat([balancing_data, curtailment_data], ignore_index=True)
 balancing_data = balancing_data[["id","up_capacity", "down_capacity", "up_price", "down_price"]]
+
 print('Balancing Market Data')
 print('-------------------')
 print(balancing_data)
@@ -71,7 +72,6 @@ print(balancing_data)
 ########################################################################################################################################################
 # SYSTEM IMBALANCE AND BALANCING CAPACITY
 ########################################################################################################################################################
-
 print('-------------------')
 print('System imbalance',system_imbalance)
 if system_imbalance > 0:
@@ -182,14 +182,7 @@ balancing_market['imbalance'] = (
     balancing_market['actual_production']
     - balancing_market['scheduled_production']
 )
-print('Balancing Market Results')
-print('-------------------')
-print(balancing_market)
-print('--------------------')
-print('Curtailment in the balancing market (MWh):', curtailment)
 
-# total_generators['production_imbalance'] =(total_generators['scheduled_production']-total_generators['actual_production'])
-# print(total_generators['production_imbalance'])
 # One-price scheme profit
 balancing_market['profit_one_price'] = (balancing_market['scheduled_production']*mcp
                                         +balancing_market['balancing_service']*balancing_price
@@ -197,20 +190,17 @@ balancing_market['profit_one_price'] = (balancing_market['scheduled_production']
                                         - balancing_market['cost'] * balancing_market['actual_production'])                                       
 
 # #Two price scheme profit
-
 # Default settlement price = MCP
 balancing_market['imbalance_price'] = mcp
 
-print('IMBALANCE',balancing_market['imbalance'])
 
 # 3. Identify generators helping the system
-if system_imbalance > 0:  # upward regulation needed, so generators providing upward regulation are helping the system
-    helping_mask = balancing_market['imbalance'] > 0
-else:                     #  downward regulation, needed, so generators providing downward regulation are helping the system
-    helping_mask = balancing_market['imbalance'] < 0
+if system_imbalance > 0:  # upward regulation needed, 
+    balancing_mask = balancing_market['imbalance'] < 0
+else:                     #  downward regulation, needed,
+    balancing_mask = balancing_market['imbalance'] > 0
 
-# 4. Generators helping the system get balancing price
-balancing_market.loc[helping_mask, 'imbalance_price'] = balancing_price
+balancing_market.loc[balancing_mask, 'imbalance_price'] = balancing_price
 
 
 # 6. Profit calculation
@@ -221,8 +211,22 @@ balancing_market['profit_two_price'] = (
     - balancing_market['cost'] * balancing_market['actual_production']
 )
 
+
+#Curtailment Cost
+curtailment_cost_market = curtailment * CURTAILMENT_COST
+
 # Total system profit
-total_profit_one_price = balancing_market['profit_one_price'].sum()-curtailment*CURTAILMENT_COST
-total_profit_two_price = balancing_market['profit_two_price'].sum()-curtailment*CURTAILMENT_COST
-print("Profit (One-Price Scheme):", balancing_market['profit_one_price'])
-print("Profit (Two-Price Scheme):", balancing_market['profit_two_price'])
+
+
+print('--------------------')
+print('Results balancing market')
+print('--------------------')
+print(balancing_market)
+print('--------------------')
+print('Load Curtailment (MWh):', curtailment)
+
+print("Profit (One-Price Scheme):")
+print(balancing_market['profit_one_price'])
+print("Profit (Two-Price Scheme):")
+print( balancing_market['profit_two_price'])
+print('Curtailment cost :', curtailment_cost_market)
