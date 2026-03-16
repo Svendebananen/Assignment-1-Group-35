@@ -1,6 +1,4 @@
- Task 2 missing: 
- - sanity check of everything done 
- - sensitivity analysis (last three bullets of the pdf)
+The remaining tasks needs to use module_LP:py
 
 
 
