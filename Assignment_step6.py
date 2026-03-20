@@ -18,10 +18,8 @@ env = gp.Env(empty=True)
 env.setParam('OutputFlag', 0)
 env.start()
 
-
 class Expando(object):
     pass
-
 
 class LP_InputData:
     def __init__(
@@ -264,8 +262,8 @@ input_data_reserve = LP_InputData(
     },
 
     constraints_sense = {
-        'upward reserve requirement':   GRB.GREATER_EQUAL,
-        'downward reserve requirement': GRB.GREATER_EQUAL,
+        'upward reserve requirement':   GRB.EQUAL,
+        'downward reserve requirement': GRB.EQUAL,
         **{f'reserve up capacity {g}':    GRB.LESS_EQUAL for g in BSP},
         **{f'reserve down capacity {g}':  GRB.LESS_EQUAL for g in BSP},
         **{f'reserve joint capacity {g}': GRB.LESS_EQUAL for g in BSP},
