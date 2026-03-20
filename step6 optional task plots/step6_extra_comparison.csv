@@ -1,0 +1,2 @@
+hour,eu_mcp,us_mcp,eu_reserve_price_up,us_reserve_price_up,eu_reserve_price_dn,us_reserve_price_dn,eu_reserve_cost,us_reserve_cost,eu_da_sw,us_da_sw,eu_net_sw,us_net_sw,net_sw_gain
+9,10.52,10.52,2.611,-2.611,1.0465,-11.4565,840.5109924999999,840.5109924999999,747377.554503,746537.0435104998,746537.0435105,746537.0435104998,-2.3283064365386963e-10
