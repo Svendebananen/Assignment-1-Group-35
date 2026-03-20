@@ -231,7 +231,7 @@ input_data_reserve = LP_InputData(
                    'downward reserve requirement'] +
                   [f'reserve up capacity {g}'    for g in BSP] +
                   [f'reserve down capacity {g}'  for g in BSP] +
-                  [f'reserve joint capacity {g}' for g in BSP],
+                  [f'reserve joint capacity {g}' for g in BSP], # not present in the slides, but useful to prevent the generetors to bid more than its total capacity
 
     objective_coeff = {
         **{f'reserve up {g}':   bsp_data['reserve_up_price'][g]   for g in BSP},
