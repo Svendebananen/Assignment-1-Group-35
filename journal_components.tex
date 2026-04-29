@@ -1,0 +1,171 @@
+\documentclass[12pt, a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{siunitx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{geometry}
+\usepackage{circuitikz}
+\usepackage{caption}
+\usepackage{float}
+
+\geometry{margin=2.5cm}
+
+\sisetup{per-mode=symbol}
+
+\title{Black Box Component Identification}
+\author{Group 35}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section*{Introduction}
+The objective of this experiment was to identify the electrical components contained within a series of black boxes, each with two accessible terminals. Measurements were performed using both DC and AC excitation. For each component, the impedance magnitude and voltage phase angle were recorded, and the component was identified based on the characteristic electrical behavior.
+
+% -----------------------------------------------------------------------
+\section*{Component 1 -- Pure Resistor}
+
+The measured impedance of \SI{120}{\ohm} with a voltage phase angle of \ang{0} indicates purely resistive behavior. No reactive component was observed under either AC or DC excitation. The component is therefore identified as a \textbf{resistor} with:
+\[
+    R = \SI{120}{\ohm}, \quad \angle Z = \ang{0}
+\]
+
+\begin{figure}[H]
+    \centering
+    \begin{circuitikz}
+        \draw (0,0) to[R, l=$R = \SI{120}{\ohm}$, o-o] (4,0);
+    \end{circuitikz}
+    \caption{Component 1: Pure resistor.}
+\end{figure}
+
+% -----------------------------------------------------------------------
+\section*{Component 2 -- Capacitor}
+
+The measured impedance was \SI{72}{\ohm} with a voltage phase angle of \ang{-90}, consistent with purely capacitive behavior, where current leads the voltage by \ang{90}. Using the relation $|Z| = \frac{1}{\omega C}$, the capacitance was determined to be \SI{2.2}{\micro\farad}. The component is identified as a \textbf{capacitor}:
+\[
+    |Z| = \SI{72}{\ohm}, \quad C = \SI{2.2}{\micro\farad}, \quad \angle Z = \ang{-90}
+\]
+
+\begin{figure}[H]
+    \centering
+    \begin{circuitikz}
+        \draw (0,0) to[C, l=$C = \SI{2.2}{\micro\farad}$, o-o] (4,0);
+    \end{circuitikz}
+    \caption{Component 2: Capacitor.}
+\end{figure}
+
+% -----------------------------------------------------------------------
+\section*{Component 3 -- Diode}
+
+Under AC excitation, the voltage drop across the component was measured as \SI{0.5}{\volt}, characteristic of the forward voltage drop of a silicon diode. Under DC excitation, the component exhibited a very high resistance in the reverse-bias direction, confirming non-linear, unidirectional conduction. The component is identified as a \textbf{diode}:
+\[
+    V_f = \SI{0.5}{\volt}
+\]
+
+\begin{figure}[H]
+    \centering
+    \begin{circuitikz}
+        \draw (0,0) to[D, l=$V_f = \SI{0.5}{\volt}$, o-o] (4,0);
+    \end{circuitikz}
+    \caption{Component 3: Diode.}
+\end{figure}
+
+% -----------------------------------------------------------------------
+\section*{Component 4 -- Resistor--Capacitor Parallel Network}
+
+The measured impedance was \SI{237}{\ohm} at a voltage phase angle of \ang{-44.6}, indicating a combination of resistive and capacitive elements. Under DC excitation, where the capacitor acts as an open circuit, the resistance was measured directly as \SI{333}{\ohm}. The capacitance was determined to be \SI{472}{\nano\farad}. The component is identified as a \textbf{resistor and capacitor connected in parallel}:
+\[
+    R = \SI{333}{\ohm}, \quad C = \SI{472}{\nano\farad}, \quad |Z| = \SI{237}{\ohm}, \quad \angle Z = \ang{-44.6}
+\]
+
+\begin{figure}[H]
+    \centering
+    \begin{circuitikz}
+        \draw (0,2) to[short, o-] (1,2)
+              (1,2) to[R, l=$R = \SI{333}{\ohm}$] (4,2)
+              (1,2) -- (1,0)
+              (1,0) to[C, l=$C = \SI{472}{\nano\farad}$] (4,0)
+              (4,2) -- (4,0)
+              (4,0) to[short, -o] (5,0)
+              (0,2) -- (0,0) to[short] (0,0)
+              (0,0) to[short, -o] (-0.5,0);
+        % Cleaner parallel drawing
+    \end{circuitikz}
+    \caption{Component 4: Resistor and capacitor in parallel.}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \begin{circuitikz}
+        \draw
+          (0,0) to[short, o-] (1,0) -- (1,1)
+                to[R, l=$R{=}\SI{333}{\ohm}$] (3,1) -- (3,0)
+          (1,0) -- (1,-1)
+                to[C, l=$C{=}\SI{472}{\nano\farad}$] (3,-1) -- (3,0)
+          (3,0) to[short, -o] (4,0);
+    \end{circuitikz}
+    \caption{Component 4 (redrawn): Resistor and capacitor in parallel.}
+\end{figure}
+
+% -----------------------------------------------------------------------
+\section*{Component 5 -- Inductor}
+
+The measured impedance was \SI{4.03}{\ohm} with a voltage phase angle of \ang{+76.5}, indicating predominantly inductive behavior, where voltage leads the current. Using the relation $|Z| \approx \omega L$, the inductance was calculated as \SI{624}{\micro\henry}. The component is identified as an \textbf{inductor}:
+\[
+    |Z| = \SI{4.03}{\ohm}, \quad L = \SI{624}{\micro\henry}, \quad \angle Z = \ang{+76.5}
+\]
+
+\begin{figure}[H]
+    \centering
+    \begin{circuitikz}
+        \draw (0,0) to[L, l=$L = \SI{624}{\micro\henry}$, o-o] (4,0);
+    \end{circuitikz}
+    \caption{Component 5: Inductor.}
+\end{figure}
+
+% -----------------------------------------------------------------------
+\section*{Component 6 -- Loudspeaker}
+
+The measured impedance was \SI{7.3}{\ohm} with a voltage phase angle of \ang{+0.3}, indicating a nearly purely resistive impedance consistent with a loudspeaker rated at either \SI{4}{\ohm} or \SI{8}{\ohm}. The slight positive phase angle suggests a small inductive contribution from the voice coil. Audible confirmation was obtained by applying an AC signal to the terminals, producing clearly discernible sound output. The component is identified as a \textbf{loudspeaker}:
+\[
+    |Z| = \SI{7.3}{\ohm}, \quad \angle Z = \ang{+0.3}
+\]
+
+\begin{figure}[H]
+    \centering
+    \begin{circuitikz}
+        \draw (0,0) to[loudspeaker, o-o] (4,0)
+              node[midway, above] {$|Z| = \SI{7.3}{\ohm}$};
+    \end{circuitikz}
+    \caption{Component 6: Loudspeaker (\SI{4}{\ohm} or \SI{8}{\ohm} rated).}
+\end{figure}
+
+% -----------------------------------------------------------------------
+\section*{Summary}
+
+Table~\ref{tab:summary} provides an overview of all identified components with their measured electrical parameters.
+
+\begin{table}[H]
+    \centering
+    \caption{Summary of identified black box components.}
+    \label{tab:summary}
+    \begin{tabular}{clccc}
+        \toprule
+        \textbf{Component} & \textbf{Type} & \textbf{$|Z|$} & \textbf{$\angle Z$} & \textbf{Key Parameter} \\
+        \midrule
+        1 & Resistor              & \SI{120}{\ohm}  & \ang{0}     & $R = \SI{120}{\ohm}$          \\
+        2 & Capacitor             & \SI{72}{\ohm}   & \ang{-90}   & $C = \SI{2.2}{\micro\farad}$  \\
+        3 & Diode                 & --              & --          & $V_f = \SI{0.5}{\volt}$       \\
+        4 & RC parallel           & \SI{237}{\ohm}  & \ang{-44.6} & $R = \SI{333}{\ohm}$, $C = \SI{472}{\nano\farad}$ \\
+        5 & Inductor              & \SI{4.03}{\ohm} & \ang{+76.5} & $L = \SI{624}{\micro\henry}$  \\
+        6 & Loudspeaker           & \SI{7.3}{\ohm}  & \ang{+0.3}  & Rated \SI{4}{\ohm}/\SI{8}{\ohm} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\end{document}
